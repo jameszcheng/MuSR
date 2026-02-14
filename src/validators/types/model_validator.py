@@ -4,6 +4,7 @@ from typing import List, Union, Tuple, Optional
 from src.logic_tree.tree import LogicNode, LogicNodeFactType
 from src.validators.validator import Validator
 from src.model import Model
+from src.model.model import extract_text_from_response
 
 
 class ModelValidator(Validator):
@@ -64,7 +65,7 @@ class ModelValidator(Validator):
         if self.early_escape_model:
             early_prompt = f'{self.prompt}\n\nThe Deduction:\n{raw_output}\n\nWrite your answer in the following format:\nANSWER: (yes/no)'
             early_output = self.early_escape_model.inference(early_prompt)
-            early_output = early_output.choices[0]['message']['content']
+            early_output = extract_text_from_response(early_output)
             early_answer = early_output.split('ANSWER:')[-1]
 
             if self.answer_for_validity.lower() in early_answer.lower():
@@ -72,7 +73,7 @@ class ModelValidator(Validator):
 
         prompt = f'{self.prompt}\n\nThe Deduction:\n{raw_output}\n\nWrite a short description of your reasoning then answer in the following format:\nANSWER: (yes/no)'
         output = self.model.inference(prompt)
-        output = output.choices[0]['message']['content']
+        output = extract_text_from_response(output)
         answer = output.split('ANSWER:')[-1]
 
         if self.answer_for_validity.lower() in answer.lower():

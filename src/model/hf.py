@@ -1,13 +1,12 @@
 import os
 import itertools
 import time
-import openai
 from datetime import timedelta
 import random
 
 from typing import List, Dict, Union, Any, Generator
 from tqdm import tqdm
-from transformers import GPT2TokenizerFast, AutoModel, AutoTokenizer, Pipeline, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from src.model.model import Model
 from src import cache

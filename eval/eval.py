@@ -13,6 +13,7 @@ random.seed(0)
 
 from src import cache
 from src.model import OpenAIModel, HFModel
+from src.model.model import extract_text_from_response
 from src.logic_tree.tree import LogicTree, LogicNode, LogicNodeFactType
 from src.madlib.madlib import Madlib
 from src.utils.paths import OUTPUT_FOLDER
@@ -199,7 +200,7 @@ def main():
 
                             if isinstance(m, OpenAIModel):
                                 raw = m.inference(prompt, system_prompt=d.get("system_prompt"))
-                                output = raw.choices[0]['message']['content']
+                                output = extract_text_from_response(raw)
                             else:
                                 if d.get("system_prompt") and model_info.get("system_prompt_template"):
                                     prompt = model_info.get("system_prompt_template").replace("{system_prompt}", d.get('system_prompt')).replace("{prompt}", prompt)

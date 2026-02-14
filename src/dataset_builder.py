@@ -11,6 +11,7 @@ random.seed(0)
 from src.madlib.madlib import Madlib
 from src.logic_tree.tree import LogicNode, LogicTree, LogicNodeFactType
 from src.model import Model
+from src.model.model import extract_text_from_response
 from src.validators import Validator, StructureValidator
 
 
@@ -402,7 +403,7 @@ class DatasetBuilder:
                     sys.exit(0)
 
                 raw = model.inference(prompt)
-                output = raw.choices[0]['message']['content']
+                output = extract_text_from_response(raw)
 
                 def parse_out(output):
                     facts_from_story = []
@@ -435,7 +436,7 @@ class DatasetBuilder:
                     else:
                         raw = retry_model.inference(prompt)
 
-                    output = raw.choices[0]['message']['content']
+                    output = extract_text_from_response(raw)
 
                     facts_from_story, cs_knowledge = parse_out(output)
 
@@ -471,7 +472,7 @@ class DatasetBuilder:
             raw = model.inference(prompt, temperature=temperature)
         else:
             raw = model.inference(prompt)
-        output = raw.choices[0]['message']['content']
+        output = extract_text_from_response(raw)
 
         return output, raw
 
@@ -562,7 +563,7 @@ class DatasetBuilder:
             while retry_idx <= max_retries_on_error:
                 all_valid = True
                 raw = model.inference(prompt)
-                output = raw.choices[0]['message']['content']
+                output = extract_text_from_response(raw)
 
                 facts_from_story, cs_knowledge = parse_out(output)
 
