@@ -45,6 +45,8 @@ class RedisCache:
 
         try:
             self.redis_backend = redis.StrictRedis(host=host, port=port, db=db)
+            # Force a real connection test now so we can fail fast and disable cache gracefully.
+            self.redis_backend.ping()
             self.bust_cache = bust_cache
             self.disabled = False
 
@@ -117,29 +119,36 @@ class RedisCache:
 
             # look in the cache unless we're busting the cache
             if not self.bust_cache and not self.disabled and not no_cache:
-                if self.redis_backend.exists(key):
-
-                    pickled = self.redis_backend.get(key)
-                    try:
-                        return pickle.loads(pickled)
-                    except UnpicklingError:
-                        pass
+                try:
+                    if self.redis_backend.exists(key):
+                        pickled = self.redis_backend.get(key)
+                        try:
+                            return pickle.loads(pickled)
+                        except UnpicklingError:
+                            pass
+                except redis.exceptions.RedisError as e:
+                    print(f"WARNING: Redis read failed, disabling cache. ERROR: {e}")
+                    self.disable()
 
             # run the function
             v = f(*args, **kwargs)
 
             if not self.disabled and not no_cache:
                 # pickle and cache the result
-                pickled = pickle.dumps(v)
+                try:
+                    pickled = pickle.dumps(v)
 
-                if data_ex and v is not None:
-                    ex = data_ex
-                elif no_data_ex and v is None:
-                    ex = no_data_ex
-                else:
-                    ex = None
+                    if data_ex and v is not None:
+                        ex = data_ex
+                    elif no_data_ex and v is None:
+                        ex = no_data_ex
+                    else:
+                        ex = None
 
-                self.redis_backend.set(key, pickled, ex)
+                    self.redis_backend.set(key, pickled, ex)
+                except redis.exceptions.RedisError as e:
+                    print(f"WARNING: Redis write failed, disabling cache. ERROR: {e}")
+                    self.disable()
 
             # return the result
             return v

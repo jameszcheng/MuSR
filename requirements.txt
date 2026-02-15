@@ -7,8 +7,8 @@ requests>=2.32,<3
 tqdm>=4.66,<5
 typing_extensions>=4.10,<5
 
-# Multi-provider model access (OpenAI, Together, etc).
-litellm>=1.60,<2
+# Together API client.
+together>=1.4,<2
 
 # Local Hugging Face model support.
 transformers>=4.45,<5

@@ -36,12 +36,18 @@ def main():
 
     DATASETS_FOLDER = OUTPUT_FOLDER
 
-    gpt4 = OpenAIModel(engine='gpt-4', api_max_attempts=30, api_endpoint='chat', temperature=1.0, top_p=1.0, max_tokens=2400, num_samples=1, prompt_cost=0.03/1000, completion_cost=0.06/1000)
-    gpt3516k = OpenAIModel(engine='gpt-3.5-turbo-16k', api_endpoint='chat', api_max_attempts=30, temperature=1.0, max_tokens=2400, num_samples=1, prompt_cost=0.003/1000, completion_cost=0.004/1000)
-    gpt35 = OpenAIModel(engine='gpt-3.5-turbo', api_endpoint='chat', api_max_attempts=30, temperature=1.0, max_tokens=700, num_samples=1, prompt_cost=0.0015/1000, completion_cost=0.002/1000)
+    # Together smoke-test default (set TOGETHER_API_KEY in your environment).
+    together_smoke = OpenAIModel(
+        engine='ServiceNow-AI/Apriel-1.6-15b-Thinker',
+        api_endpoint='chat',
+        api_max_attempts=5,
+        temperature=0.0,
+        max_tokens=512,
+        num_samples=1
+    )
 
     # NOTE: change the filenames as needed! (to point at whatever thing you want to test.  It is important to keep the system prompt/hint/etc. all the same for each specific type of domain though).
-    murder_mysteries = {'name': 'murder mysteries', 'file_name': 'murder_mysteries.json', 'ex': murder_mystery_solved_ex, 'system_prompt': 'You are a helpful assistant that will answer the questions given by the user.', 'hint': 'Before selecting a choice, explain your reasoning step by step. The murderer needs to have a means (access to weapon), motive (reason to kill the victim), and opportunity (access to crime scene) in order to have killed the victim. Innocent suspects may have two of these proven, but not all three. An innocent suspect may be suspicious for some other reason, but they will not have all of motive, means, and opportunity established.\n\nIf you believe that both suspects have motive, means, and opportunity, you should make an educated guess pick the one for whom these are best established. If you believe that neither suspect has all three established, then choose the suspect where these are most clearly established.'}
+    murder_mysteries = {'name': 'murder mysteries', 'file_name': 'murder_mystery.json', 'ex': murder_mystery_solved_ex, 'system_prompt': 'You are a helpful assistant that will answer the questions given by the user.', 'hint': 'Before selecting a choice, explain your reasoning step by step. The murderer needs to have a means (access to weapon), motive (reason to kill the victim), and opportunity (access to crime scene) in order to have killed the victim. Innocent suspects may have two of these proven, but not all three. An innocent suspect may be suspicious for some other reason, but they will not have all of motive, means, and opportunity established.\n\nIf you believe that both suspects have motive, means, and opportunity, you should make an educated guess pick the one for whom these are best established. If you believe that neither suspect has all three established, then choose the suspect where these are most clearly established.'}
     object_placements = {'name': 'object placements', 'file_name': 'object_placements.json', 'ex': object_placements_solved_ex, 'skip_ablated': True, 'system_prompt': 'You are a helpful assistant that will answer the questions given by the user.', 'ablation_depth_modifier': 2, 'hint': 'Based on this story, we want to identify where someone believes that a certain object is at the end of the story. In order to do that, you need to read the story and keep track of where they think the object is at each point. When an object is moved, the person may observe its new location if they saw it move.\n\nTo see where an object ends up, they must be able to see the location that it moves to and not be too distracted by what they are doing. If they do not observe the object moving, then they will still believe it to be in the last location where they observed it.', 'hint_before_question': True}
     team_allocation = {'name': 'team allocation', 'file_name': 'team_allocation.json', 'ex': team_allocation_solved_ex, 'system_prompt': 'You are a helpful assistant that will answer the questions given by the user.', 'hint': 'The story should allow you to determine how good each person is at a skill. Roughly, each person is either great, acceptable, or bad at a task. We want to find an optimal assignment of people to tasks that uses their skills as well as possible. In addition, one task will have to have two people assigned to it. The effectiveness of their teamwork (great team, acceptable team, or bad team) also impacts the overall quality of the assignment.\n\nWhen two people need to work on a task and one is bad at it, they don’t necessarily benefit from the other person being good, unless they work well together.\n\nWith different strengths, weaknesses, and interpersonal dynamics at play, you should allocate your team to find the single assignment to ensure that the tasks overall are completed as effectively as possible.\n\n'}
 
@@ -54,16 +60,10 @@ def main():
         # {'prompt': 'cot+', 'name': 'cot+ s.c. 1-shot', 'self_consistency_n': 3, 'use_example': True},
     ]
 
-    datasets_to_test = [
-       murder_mysteries,
-       object_placements,
-       team_allocation
-    ]
+    datasets_to_test = [murder_mysteries]
 
     models_to_test = [
-        {'model': gpt4},
-        # {'model': gpt3516k},
-        # {'model': gpt35},
+        {'model': together_smoke},
         # {'model': HFModel('meta-llama/Llama-2-7b-hf', load_in_4bit=True), 'system_prompt_template': "{system_prompt}\n\n{prompt}"},
         # {'model': HFModel('meta-llama/Llama-2-7b-chat-hf', load_in_4bit=True), 'system_prompt_template': "<s>[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n{prompt}[/INST]"},
         # {'model': HFModel('meta-llama/Llama-2-13b-chat-hf', load_in_4bit=True), 'system_prompt_template': "<s>[INST] <<SYS>>\n{system_prompt}\n<</SYS>>\n{prompt}[/INST]"},
@@ -73,7 +73,7 @@ def main():
         # {'model': HFModel('lmsys/vicuna-33b-v1.3', load_in_4bit=True), 'system_prompt_template': "{system_prompt}\n\nUSER: {prompt}\nASSISTANT: "},
     ]
 
-    sample_size = None  # How many examples to test on
+    sample_size = 1  # How many examples to test on
     offset = 0 # Offset the dataset
     exclude_contrastive_examples = False  # For murder mysteries, exclude stories that are the same but with the murderer suspect flipped (will only include 1 story per)
     reverse_contrastive_sample = False  # Flip which mystery you are looking at that's unique
@@ -87,9 +87,12 @@ def main():
 
     datasets = {}
     run_data = {}
-    out_file = None # Can save results to a json file, should be a path object.
+    out_file = Path("outputs/eval_smoke.json")
+    out_file.parent.mkdir(parents=True, exist_ok=True)
 
     run_cost = 0.0
+    run_prompt_tokens = 0
+    run_completion_tokens = 0
 
     for model_info in models_to_test:
         m = model_info['model']
@@ -99,8 +102,12 @@ def main():
 
             for a in ablations:
                 total_cost = 0.0
+                total_prompt_tokens = 0
+                total_completion_tokens = 0
                 if isinstance(m, OpenAIModel):
                     m.total_cost = 0.0
+                    m.total_prompt_tokens = 0
+                    m.total_completion_tokens = 0
 
                 ablation_name = a['name']
 
@@ -254,8 +261,14 @@ def main():
                             if isinstance(m, OpenAIModel):
                                 total_cost += m.total_cost
                                 run_cost += m.total_cost
+                                total_prompt_tokens += m.total_prompt_tokens
+                                total_completion_tokens += m.total_completion_tokens
+                                run_prompt_tokens += m.total_prompt_tokens
+                                run_completion_tokens += m.total_completion_tokens
 
                                 m.total_cost = 0.0
+                                m.total_prompt_tokens = 0
+                                m.total_completion_tokens = 0
 
                         if len(answer_outs) == 0:
                             continue
@@ -272,7 +285,7 @@ def main():
 
                         total += 1
 
-                        pbar.set_description(f'RUNNING | {model_name} | {d["name"]} | {ablation_name} | {correct} / {total} | (run cost = {run_cost:.2f}, iteration cost = {total_cost:.2f})')
+                        pbar.set_description(f'RUNNING | {model_name} | {d["name"]} | {ablation_name} | {correct} / {total} | (run cost = {run_cost:.4f}, iter cost = {total_cost:.4f}, run toks = {run_prompt_tokens}/{run_completion_tokens})')
 
                     answered_examples.append(answered_questions)
 
@@ -286,7 +299,7 @@ def main():
                 model_data[d.get('name')] = dataset_data
                 run_data[model_name] = model_data
 
-                print(f'RUNNING | {model_name} | {d["name"]} | {ablation_name} | {correct} / {total} | {(correct / max(1,total))*100:.1f}', flush=True)
+                print(f'RUNNING | {model_name} | {d["name"]} | {ablation_name} | {correct} / {total} | {(correct / max(1,total))*100:.1f} | tokens(in/out)={total_prompt_tokens}/{total_completion_tokens} | est_cost={total_cost:.4f}', flush=True)
 
                 if out_file:
                     json.dump(run_data, out_file.open('w'))
