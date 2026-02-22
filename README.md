@@ -17,24 +17,26 @@ The datasets are in `datasets/{domain_name}.json`
 
 ### Install
 
-1. `virtualenv venv` we have tested with python 3.8
-2. `source venv/bin/activate`
-3. `pip install -r requirements.txt`
+1. Install `uv`: https://docs.astral.sh/uv/getting-started/installation/
+2. Create and sync the environment:
+   - `uv sync`
+3. (Optional) run commands in the environment shell:
+   - `uv run python -V`
 
 ### Evaluate
 
 
 To run the evaluation script on the MuSR datasets:
 ```shell
-cd eval
-OPENAI_API_KEY=key python eval.py
+export TOGETHER_API_KEY=key
+uv run python -m eval.eval
 ```
 
 You can edit the functionality of the evaluation in eval.py as well (including different prompting strategies, models, and more).
 
 ### [Optional] Install Redis for caching  
 
-We cache all LLM calls (openai and huggingface) with keys based on the prompt and model parameters to speed up evaluations.
+We cache all LLM calls (Together API and Hugging Face) with keys based on the prompt and model parameters to speed up evaluations.
 
 To do this, we used [Redis](https://redis.io/docs/clients/python/)
 
@@ -46,9 +48,9 @@ Alternatively you can run our code without redis or disable the cache entirely b
 
 ### New models
 
-Right now we support all the OpenAI endpoints and models published on Huggingface.  
+Right now we support Together API chat/completion models and models published on Hugging Face.
 
-Custom models made in PyTorch or Tensorflow will need to have an implementation that follows from the `Model` class in `src/model/model.py` similar to `src/model/hf.py` (for Huggingface).  
+Custom models made in PyTorch or Tensorflow will need an implementation that follows the `Model` class in `src/model/model.py`, similar to `src/model/hf.py` (for Hugging Face).
 
 ### New prompts and MuSR domain datasets
 
@@ -80,10 +82,10 @@ Every dataset creation script is in `{project_root}/musr_dataset_scripts`.  In t
 To run a script:
 
 ```shell
-cd musr_dataset_scripts
-OPENAI_API_KEY=key python {dataset_script}.py
+export TOGETHER_API_KEY=key
+uv run python musr_dataset_scripts/{dataset_script}.py
 ```
-NOTE: We tested most of this with GPT-4.  It's possible that quality may significantly degrade if you use a different model due to the prompts being heavily tailored to GPT-4 as well as expecting the LLM to produce "good" outputs (some datasets require parsing of an output which requires strict formatting)
+NOTE: We previously tested most of this with very strong frontier models. Quality may degrade if you switch to weaker models because prompts assume high-quality, well-formatted outputs.
 
 This will produce a dataset file in `{project_root}/datasets` after it completes.
 

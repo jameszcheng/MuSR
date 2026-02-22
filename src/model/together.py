@@ -10,12 +10,8 @@ from src import cache
 from src.model.model import Model
 
 
-class OpenAIModel(Model):
-    """
-    Together API wrapper.
-
-    The class name is kept for backwards compatibility with the existing MuSR codebase.
-    """
+class TogetherModel(Model):
+    """Together API wrapper for chat/completion inference."""
 
     def __init__(
         self,

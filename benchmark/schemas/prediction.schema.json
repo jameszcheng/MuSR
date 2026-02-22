@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CS422Prediction",
+  "type": "object",
+  "required": ["id", "track"],
+  "properties": {
+    "id": {"type": "string"},
+    "track": {"type": "string", "enum": ["long_context", "tom", "dynamic_belief"]},
+    "predicted_index": {"type": "integer", "minimum": 0},
+    "predicted_text": {"type": "string"},
+    "round_predictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["round_id", "top_suspect"],
+        "properties": {
+          "round_id": {"type": "integer", "minimum": 1},
+          "top_suspect": {"type": "string"}
+        }
+      }
+    },
+    "raw_output": {"type": "string"}
+  },
+  "additionalProperties": true
+}

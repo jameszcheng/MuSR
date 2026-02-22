@@ -3,22 +3,29 @@ RUN THIS FILE TO CREATE AWESOME MURDER MYSTERIES USING AN LLM :)
 
 Go to the main() function for arguments/control over the dataset creation.
 
-NOTE: Expects your openai api key to be in the environment.  "OPENAI_API_KEY=api_key python script.py" (if you are using
-openai LLMs)
+NOTE: Expects your Together API key to be in the environment.
+Run as: "TOGETHER_API_KEY=api_key TOGETHER_NO_BANNER=1 uv run python musr_dataset_scripts/create_murder_mysteries.py"
 
 NOTE: By default, datasets go into "{ROOT_FOLDER}/datasets/{dataset_name}.json"
 """
 
+import argparse
 import copy
 import json
 import sys
 from pathlib import Path
 import random
+import re
+from typing import Any, Dict, List
 
 random.seed(0)
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from src import cache
-from src.model import OpenAIModel
+from src.model import TogetherModel
 from src.logic_tree.tree import LogicTree, LogicNode, LogicNodeFactType
 from src.madlib.madlib import Madlib
 from src.utils.paths import OUTPUT_FOLDER, ROOT_FOLDER
@@ -121,22 +128,126 @@ example_node_completions = [example1_node_completion, example2_node_completion, 
 example_descriptions = [example1_description, example2_description, example3_description]
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate MuSR murder mysteries with optional in-run long-context stressor emission.")
+    parser.add_argument("--max-examples", type=int, default=1)
+    parser.add_argument("--tree-depth", type=int, default=3)
+    parser.add_argument("--max-number-of-suspects", type=int, default=2)
+    parser.add_argument("--max-structure-completion-retries", type=int, default=3)
+    parser.add_argument("--max-num-suspicious-facts", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--disable-validators", action="store_true")
+
+    parser.add_argument("--model", type=str, default="moonshotai/Kimi-K2.5")
+    parser.add_argument("--fast-model", type=str, default="meta-llama/Llama-3.1-8B-Instruct-Turbo")
+    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--max-tokens", type=int, default=2400)
+
+    parser.add_argument("--out-file", type=Path, default=OUTPUT_FOLDER / "custom_murder_mysteries.json")
+
+    parser.add_argument("--emit-long-context", action="store_true", help="Emit a long-context variant in the same generation run.")
+    parser.add_argument("--long-context-out-file", type=Path, default=OUTPUT_FOLDER / "custom_murder_mysteries_long_context.json")
+    parser.add_argument("--long-distractor-count", type=int, default=2)
+    parser.add_argument("--long-repeat-factor", type=int, default=1)
+    parser.add_argument("--long-placement", choices=["prefix", "interleave"], default="prefix")
+    return parser.parse_args()
+
+
+def split_sentences(text: str) -> List[str]:
+    chunks = re.split(r"(?<=[.!?])\s+", text.strip())
+    return [c.strip() for c in chunks if c and c.strip()]
+
+
+def build_long_context_dataset(
+        dataset: List[Dict[str, Any]],
+        distractor_count: int,
+        repeat_factor: int,
+        placement: str,
+        rng: random.Random
+) -> List[Dict[str, Any]]:
+    if len(dataset) <= 1:
+        return copy.deepcopy(dataset)
+
+    contexts = [x["context"] for x in dataset]
+    out = []
+
+    for idx, example in enumerate(dataset):
+        pool = [i for i in range(len(dataset)) if i != idx]
+        sampled = rng.sample(pool, k=min(distractor_count, len(pool)))
+        distractor_blocks = [contexts[i] for i in sampled] * max(1, repeat_factor)
+
+        if placement == "prefix":
+            long_context = (
+                "Background files from related investigations (some may be irrelevant):\n\n"
+                + "\n\n".join(distractor_blocks)
+                + "\n\nTarget case file:\n\n"
+                + example["context"]
+            )
+        else:
+            target_sents = split_sentences(example["context"])
+            if not target_sents:
+                target_sents = [example["context"]]
+            stride = max(1, len(target_sents) // (len(distractor_blocks) + 1))
+            dptr = 0
+            mixed = []
+            for sidx, sent in enumerate(target_sents):
+                mixed.append(sent)
+                if dptr < len(distractor_blocks) and (sidx + 1) % stride == 0:
+                    mixed.append(f"[Distractor Case]\n{distractor_blocks[dptr]}")
+                    dptr += 1
+            while dptr < len(distractor_blocks):
+                mixed.append(f"[Distractor Case]\n{distractor_blocks[dptr]}")
+                dptr += 1
+            long_context = "\n\n".join(mixed)
+
+        new_example = copy.deepcopy(example)
+        new_example["context"] = long_context
+
+        for qidx, q in enumerate(new_example.get("questions", [])):
+            if not q.get("intermediate_data"):
+                q["intermediate_data"] = [{}]
+            if len(q["intermediate_data"]) == 0:
+                q["intermediate_data"] = [{}]
+
+            base_md = q["intermediate_data"][0]
+            if not isinstance(base_md, dict):
+                base_md = {"legacy_intermediate_data": str(base_md)}
+
+            base_md["stressor"] = "long_context"
+            base_md["source_example_index"] = idx
+            base_md["source_question_index"] = qidx
+            base_md["distractor_example_indices"] = sampled
+            base_md["distractor_count"] = len(sampled)
+            base_md["repeat_factor"] = repeat_factor
+            base_md["placement"] = placement
+            base_md["context_chars"] = len(long_context)
+            q["intermediate_data"][0] = base_md
+
+        out.append(new_example)
+
+    return out
+
+
 def main():
+    args = parse_args()
+    random.seed(args.seed)
+    rng = random.Random(args.seed)
+
     # CACHE
     cache.enable()
 
     # PARAMS (if not with a comment, look at the Murder Mystery dataset class for more info.)
 
-    max_examples = 1
-    tree_depth = 3
+    max_examples = args.max_examples
+    tree_depth = args.tree_depth
 
-    max_number_of_suspects = 2
-    max_structure_completion_retries = 3
-    max_num_suspicious_facts = 1
+    max_number_of_suspects = args.max_number_of_suspects
+    max_structure_completion_retries = args.max_structure_completion_retries
+    max_num_suspicious_facts = args.max_num_suspicious_facts
 
-    use_validators = True
+    use_validators = not args.disable_validators
 
-    out_file = OUTPUT_FOLDER / 'custom_murder_mysteries.json'
+    out_file = args.out_file
     if out_file:
         out_file.parent.mkdir(exist_ok=True, parents=True)
 
@@ -144,12 +255,26 @@ def main():
 
     total_cost = 0
 
-    # Models we foudn helpful to use.  In our finalized dataset, we only used gpt4.
-    gpt35 = OpenAIModel(engine='gpt-3.5-turbo', api_endpoint='chat', api_max_attempts=30, temperature=1.0, max_tokens=1500, num_samples=1, prompt_cost=0.0015/1000, completion_cost=0.002/1000)
-    gpt16k35 = OpenAIModel(engine='gpt-3.5-turbo-16k', api_endpoint='chat', api_max_attempts=30, temperature=1.0, max_tokens=2400, num_samples=1, prompt_cost=0.003/1000, completion_cost=0.004/1000)
-    gpt4 = OpenAIModel(engine='gpt-4', api_max_attempts=30, api_endpoint='chat', temperature=1.0, top_p=1.0, max_tokens=2400, num_samples=1, prompt_cost=0.03/1000, completion_cost=0.06/1000)
+    # Together-first model presets.
+    together_fast = TogetherModel(
+        engine=args.fast_model,
+        api_endpoint='chat',
+        api_max_attempts=30,
+        temperature=args.temperature,
+        max_tokens=1500,
+        num_samples=1
+    )
+    together_main = TogetherModel(
+        engine=args.model,
+        api_endpoint='chat',
+        api_max_attempts=30,
+        temperature=args.temperature,
+        top_p=1.0,
+        max_tokens=args.max_tokens,
+        num_samples=1
+    )
 
-    model_to_use = gpt16k35
+    model_to_use = together_main
 
     creator = MurderMysteryDataset()
 
@@ -227,8 +352,8 @@ def main():
             retry_model=model_to_use,
             progress_bar=True,
             use_validators=use_validators,
-            model_validator_model=gpt4,
-            model_validator_early_escape_model=gpt16k35,
+            model_validator_model=together_main,
+            model_validator_early_escape_model=together_fast,
             test_completion_prompt=False
         )
 
@@ -261,12 +386,11 @@ def main():
 
             choices = [x['suspect_info']["suspect"] for x in _suspect_trees]
 
-            call_cost = gpt35.total_cost + gpt16k35.total_cost + gpt4.total_cost
+            call_cost = together_fast.total_cost + together_main.total_cost
             total_cost += call_cost
             print(f'EXAMPLE COST: {call_cost:.2f} | TOTAL COST SO FAR: {total_cost:.2f}')
-            gpt35.total_cost = 0.0
-            gpt16k35.total_cost = 0.0
-            gpt4.total_cost = 0.0
+            together_fast.total_cost = 0.0
+            together_main.total_cost = 0.0
 
             safe_suspects_dict = [{k: v.to_json() if isinstance(v, LogicTree) else v for k, v in x.items()} for x in _suspect_trees]
             dataset.append(
@@ -286,7 +410,23 @@ def main():
     if out_file:
         json.dump(dataset, out_file.open('w'))
 
-    print(f"TOTAL COST: {total_cost} | {total_cost / max_examples} per example.")
+    if args.emit_long_context:
+        lc_data = build_long_context_dataset(
+            dataset=dataset,
+            distractor_count=args.long_distractor_count,
+            repeat_factor=args.long_repeat_factor,
+            placement=args.long_placement,
+            rng=rng
+        )
+        args.long_context_out_file.parent.mkdir(exist_ok=True, parents=True)
+        json.dump(lc_data, args.long_context_out_file.open('w'))
+        print(
+            f"LONG-CONTEXT DATASET WRITTEN: {args.long_context_out_file} | "
+            f"examples={len(lc_data)} | distractors={args.long_distractor_count} | placement={args.long_placement}"
+        )
+
+    denom = max(1, max_examples)
+    print(f"TOTAL COST: {total_cost} | {total_cost / denom} per example.")
 
 
 if __name__ == "__main__":

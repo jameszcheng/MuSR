@@ -9,7 +9,7 @@ random.seed(0)
 from src.madlib.madlib import Madlib
 from src.logic_tree.tree import LogicTree, LogicNode, LogicNodeFactType
 from src.dataset_builder import DatasetBuilder
-from src.model.openai import OpenAIModel
+from src.model.together import TogetherModel
 from src.validators import StructureValidator, ForbiddenTextValidator
 
 # We use this to overwrite the original _base_completion_prompt_intro_ in dataset_builder.py
@@ -190,7 +190,7 @@ class TeamAllocationDataset(DatasetBuilder):
 
     def create_fact_trees(
             self,
-            model: OpenAIModel,
+            model: TogetherModel,
             facts: List[str],
             tasks,
             description: str,
@@ -204,7 +204,7 @@ class TeamAllocationDataset(DatasetBuilder):
             max_retries_on_error: int = 1,
             progress_bar: bool = False,
             test_complete_structure_prompt: bool = False,
-            retry_model: OpenAIModel = None,
+            retry_model: TogetherModel = None,
             use_complex_facts: bool = True,
             use_validators: bool = False
     ):

@@ -12,7 +12,7 @@ import collections
 random.seed(0)
 
 from src import cache
-from src.model import OpenAIModel, HFModel
+from src.model import TogetherModel, HFModel
 from src.model.model import extract_text_from_response
 from src.logic_tree.tree import LogicTree, LogicNode, LogicNodeFactType
 from src.madlib.madlib import Madlib
@@ -37,7 +37,7 @@ def main():
     DATASETS_FOLDER = OUTPUT_FOLDER
 
     # Together smoke-test default (set TOGETHER_API_KEY in your environment).
-    together_smoke = OpenAIModel(
+    together_smoke = TogetherModel(
         engine='ServiceNow-AI/Apriel-1.6-15b-Thinker',
         api_endpoint='chat',
         api_max_attempts=5,
@@ -104,7 +104,7 @@ def main():
                 total_cost = 0.0
                 total_prompt_tokens = 0
                 total_completion_tokens = 0
-                if isinstance(m, OpenAIModel):
+                if isinstance(m, TogetherModel):
                     m.total_cost = 0.0
                     m.total_prompt_tokens = 0
                     m.total_completion_tokens = 0
@@ -205,7 +205,7 @@ def main():
                             if skip_inference:
                                 continue
 
-                            if isinstance(m, OpenAIModel):
+                            if isinstance(m, TogetherModel):
                                 raw = m.inference(prompt, system_prompt=d.get("system_prompt"))
                                 output = extract_text_from_response(raw)
                             else:
@@ -258,7 +258,7 @@ def main():
                             else:
                                 raise Exception("ERROR: SHOULDN'T HIT")
 
-                            if isinstance(m, OpenAIModel):
+                            if isinstance(m, TogetherModel):
                                 total_cost += m.total_cost
                                 run_cost += m.total_cost
                                 total_prompt_tokens += m.total_prompt_tokens

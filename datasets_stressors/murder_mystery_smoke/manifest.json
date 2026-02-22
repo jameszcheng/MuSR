@@ -1,0 +1,18 @@
+{
+  "domain": "murder_mystery",
+  "input": "datasets/murder_mystery.json",
+  "stressor": "both",
+  "seed": 7,
+  "limit": 3,
+  "config": {
+    "distractor_count": 2,
+    "placement": "prefix",
+    "repeat_factor": 1,
+    "max_rounds": 40,
+    "setup_sentences": 2
+  },
+  "counts": {
+    "long_context": 3,
+    "dynamic_updates": 3
+  }
+}

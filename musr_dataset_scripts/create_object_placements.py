@@ -3,8 +3,8 @@ RUN THIS FILE TO CREATE AWESOME STORIES USING AN LLM :)
 
 Go to the main() function for arguments/control over the dataset creation.
 
-NOTE: Expects your openai api key to be in the environment.  "OPENAI_API_KEY=api_key python script.py" (if you are using
-openai LLMs)
+NOTE: Expects your Together API key to be in the environment.
+Run as: "TOGETHER_API_KEY=api_key TOGETHER_NO_BANNER=1 uv run python musr_dataset_scripts/create_object_placements.py"
 
 NOTE: By default, datasets go into "{ROOT_FOLDER}/datasets/{dataset_name}.json"
 """
@@ -23,7 +23,7 @@ import traceback
 random.seed(0)
 
 from src import cache
-from src.model import OpenAIModel
+from src.model import TogetherModel
 from src.logic_tree.tree import LogicTree, LogicNode, LogicNodeFactType
 from src.utils.paths import OUTPUT_FOLDER
 
@@ -119,11 +119,25 @@ def main():
     # CREATION LOGIC
     total_cost = 0
 
-    gpt35 = OpenAIModel(engine='gpt-3.5-turbo', api_endpoint='chat', api_max_attempts=30, temperature=1.0, max_tokens=1500, num_samples=1, prompt_cost=0.0015/1000, completion_cost=0.002/1000)
-    gpt16k35 = OpenAIModel(engine='gpt-3.5-turbo-16k', api_endpoint='chat', api_max_attempts=30, temperature=1.0, max_tokens=1500, num_samples=1, prompt_cost=0.003/1000, completion_cost=0.004/1000)
-    gpt4 = OpenAIModel(engine='gpt-4', api_max_attempts=30, api_endpoint='chat', temperature=1.0, top_p=1.0, max_tokens=2400, num_samples=1, prompt_cost=0.03/1000, completion_cost=0.06/1000)
+    together_fast = TogetherModel(
+        engine='meta-llama/Llama-3.1-8B-Instruct-Turbo',
+        api_endpoint='chat',
+        api_max_attempts=30,
+        temperature=1.0,
+        max_tokens=1500,
+        num_samples=1
+    )
+    together_main = TogetherModel(
+        engine='meta-llama/Llama-3.1-70B-Instruct-Turbo',
+        api_endpoint='chat',
+        api_max_attempts=30,
+        temperature=1.0,
+        top_p=1.0,
+        max_tokens=2400,
+        num_samples=1
+    )
 
-    model_to_use = gpt4
+    model_to_use = together_main
 
     dataset = []
 
@@ -693,13 +707,12 @@ Output:
 
         story = story_so_far
 
-        cost = gpt35.total_cost + gpt16k35.total_cost + gpt4.total_cost
+        cost = together_fast.total_cost + together_main.total_cost
         total_cost += cost
         print(
             f"EXAMPLE COST: {cost:.2f} | TOTAL COST: {total_cost:.2f}")
-        gpt35.total_cost = 0.0
-        gpt16k35.total_cost = 0.0
-        gpt4.total_cost = 0.0
+        together_fast.total_cost = 0.0
+        together_main.total_cost = 0.0
 
         if verbose:
             print("FINISHED")

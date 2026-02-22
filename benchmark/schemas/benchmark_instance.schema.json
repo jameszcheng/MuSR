@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CS422BenchmarkInstance",
+  "type": "object",
+  "required": ["id", "track", "question", "metadata"],
+  "properties": {
+    "id": {"type": "string"},
+    "track": {"type": "string", "enum": ["long_context", "tom", "dynamic_belief"]},
+    "context": {"type": "string"},
+    "question": {"type": "string"},
+    "choices": {"type": "array", "items": {"type": "string"}},
+    "answer_index": {"type": "integer", "minimum": 0},
+    "answer_text": {"type": "string"},
+    "suspects": {"type": "array", "items": {"type": "string"}},
+    "rounds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["round_id", "evidence_text"],
+        "properties": {
+          "round_id": {"type": "integer", "minimum": 1},
+          "evidence_text": {"type": "string"}
+        }
+      }
+    },
+    "metadata": {"type": "object"}
+  },
+  "additionalProperties": true
+}
