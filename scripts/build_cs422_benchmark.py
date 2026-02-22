@@ -162,7 +162,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Build CS422 benchmark starter tracks from MuSR files.")
     p.add_argument("--musr", type=Path, default=Path("datasets/murder_mystery.json"))
     p.add_argument("--stream", type=Path, default=Path("datasets_stream/murder_mystery_stream.jsonl"))
-    p.add_argument("--outdir", type=Path, default=Path("benchmarks/cs422_v0"))
+    p.add_argument("--outdir", type=Path, default=Path("benchmark_runs/cs422_v0"))
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--distractors", type=int, default=2)
     p.add_argument("--repeat-factor", type=int, default=1)

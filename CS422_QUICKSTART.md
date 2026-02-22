@@ -45,12 +45,12 @@ uv sync
 
 2. Build benchmark files:
 ```bash
-uv run python scripts/build_cs422_benchmark.py --outdir benchmarks/cs422_v0 --seed 7
+uv run python scripts/build_cs422_benchmark.py --outdir benchmark_runs/cs422_v0 --seed 7
 ```
 
 3. Inspect outputs:
 ```bash
-find benchmarks/cs422_v0 -maxdepth 2 -type f | sort
+find benchmark_runs/cs422_v0 -maxdepth 2 -type f | sort
 ```
 
 4. Start with smoke eval on `dynamic_belief` using existing stream eval path.
