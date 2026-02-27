@@ -1,12 +1,7 @@
 import json
-import math
-import sys
 from pathlib import Path
 import random
 from tqdm import tqdm
-from transformers import AutoTokenizer
-import transformers
-from transformers import AutoModelForCausalLM, AutoTokenizer
 import collections
 
 random.seed(0)
@@ -14,8 +9,7 @@ random.seed(0)
 from src import cache
 from src.model import TogetherModel, HFModel
 from src.model.model import extract_text_from_response
-from src.logic_tree.tree import LogicTree, LogicNode, LogicNodeFactType
-from src.madlib.madlib import Madlib
+from src.logic_tree.tree import LogicTree
 from src.utils.paths import OUTPUT_FOLDER
 
 from eval.icl.murder_mystery_solved_ex import murder_mystery_solved_ex
@@ -188,7 +182,7 @@ def main():
                                     facts = list(sorted(facts)) if d.get('allow_sorted_facts', True) else facts
                                     facts_str = "\n".join([f'- {x}' for x in facts])
                                     prompt += f'Facts for Choice {c}:\n{facts_str}\n\n'
-                                prompt += f'Given the list of facts per answer choice answer the following question\n\n{question["question"]}\n\nPick one of the following choices:\n{choices}\n\nYou must pick on option.  After you have found the answer, say it in this format "ANSWER: (your answer here, include the choice number)"'
+                                prompt += f'Given the list of facts per answer choice answer the following question\n\n{question["question"]}\n\nPick one of the following choices:\n{choices}\n\nYou must pick one option.  After you have found the answer, say it in this format "ANSWER: (your answer here, include the choice number)"'
 
                             if verbose:
                                 print(f'EX: {eidx +1}.{qidx +1}')

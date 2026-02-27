@@ -3,7 +3,7 @@ import json
 import random
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List
 
 
 def read_json(path: Path) -> Any:

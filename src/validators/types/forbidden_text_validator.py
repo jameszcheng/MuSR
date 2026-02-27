@@ -1,7 +1,7 @@
 from typing import List, Union, Tuple
 
 
-from src.logic_tree.tree import LogicNode, LogicNodeFactType
+from src.logic_tree.tree import LogicNode
 from src.validators.validator import Validator
 
 

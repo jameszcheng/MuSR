@@ -22,6 +22,38 @@ def read_jsonl(path: Path) -> List[Dict[str, Any]]:
     return rows
 
 
+def case_id_of(case: Dict[str, Any]) -> str:
+    return str(case.get("case_id", case.get("id", "unknown_case")))
+
+
+def gold_suspect_of(case: Dict[str, Any]) -> str:
+    if "gold_suspect" in case:
+        return str(case["gold_suspect"])
+    if "answer_text" in case:
+        return str(case["answer_text"])
+    suspects = case.get("suspects", [])
+    answer_index = case.get("answer_index", 0)
+    if isinstance(suspects, list) and suspects and isinstance(answer_index, int) and 0 <= answer_index < len(suspects):
+        return str(suspects[answer_index])
+    return ""
+
+
+def counterfactual_info(case: Dict[str, Any]) -> Dict[str, Any]:
+    md = case.get("metadata", {}) if isinstance(case.get("metadata"), dict) else {}
+    has_cf = bool(md.get("has_counterfactual", False))
+    cf_round_id = md.get("counterfactual_round_id")
+    if not has_cf:
+        cf_round_id = None
+    return {
+        "update_type": md.get("update_type", "stream_only"),
+        "has_counterfactual": has_cf,
+        "flip_required": bool(md.get("flip_required", False)),
+        "counterfactual_round_id": cf_round_id,
+        "gold_before_text": md.get("gold_before_text"),
+        "gold_after_text": md.get("gold_after_text", gold_suspect_of(case)),
+    }
+
+
 def build_prompt(case: Dict[str, Any], revealed_evidence: List[str]) -> str:
     suspects = "\n".join(f"- {s}" for s in case["suspects"])
     evidence = "\n".join(f"{idx + 1}. {x}" for idx, x in enumerate(revealed_evidence))
@@ -157,23 +189,93 @@ def update_consistency(round_preds: List[Dict[str, Any]]) -> float:
     return max(0.0, min(1.0, score))
 
 
+def flip_when_required(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any]) -> Optional[float]:
+    if not cf_info["has_counterfactual"] or not cf_info["flip_required"]:
+        return None
+
+    cf_round_id = cf_info["counterfactual_round_id"]
+    try:
+        cf_round_id = int(cf_round_id)
+    except (TypeError, ValueError):
+        return None
+    if cf_round_id is None:
+        return None
+
+    pre = [r for r in round_preds if r["round_id"] < cf_round_id]
+    post = [r for r in round_preds if r["round_id"] >= cf_round_id]
+    if not pre or not post:
+        return None
+
+    pre_top = pre[-1]["top_suspect"]
+    post_final_top = post[-1]["top_suspect"]
+    gold_after = cf_info.get("gold_after_text")
+    if not gold_after:
+        return None
+    return float(pre_top != post_final_top and post_final_top == gold_after)
+
+
+def stability_when_not_required(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any]) -> Optional[float]:
+    if not cf_info["has_counterfactual"] or cf_info["flip_required"]:
+        return None
+
+    cf_round_id = cf_info["counterfactual_round_id"]
+    try:
+        cf_round_id = int(cf_round_id)
+    except (TypeError, ValueError):
+        return None
+    if cf_round_id is None:
+        return None
+
+    pre = [r for r in round_preds if r["round_id"] < cf_round_id]
+    post = [r for r in round_preds if r["round_id"] >= cf_round_id]
+    if not pre or not post:
+        return None
+
+    pre_top = pre[-1]["top_suspect"]
+    post_final_top = post[-1]["top_suspect"]
+    return float(pre_top == post_final_top)
+
+
+def recovery_latency(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any]) -> Optional[float]:
+    if not cf_info["has_counterfactual"] or not cf_info["flip_required"]:
+        return None
+
+    cf_round_id = cf_info["counterfactual_round_id"]
+    gold_after = cf_info["gold_after_text"]
+    try:
+        cf_round_id = int(cf_round_id)
+    except (TypeError, ValueError):
+        return None
+    if not gold_after:
+        return None
+
+    for r in round_preds:
+        if r["round_id"] >= cf_round_id and r["top_suspect"] == gold_after:
+            return float(r["round_id"] - cf_round_id)
+    return None
+
+
 def evaluate_case(model: TogetherModel, case: Dict[str, Any], verbose: bool = False) -> Dict[str, Any]:
     revealed: List[str] = []
     round_preds: List[Dict[str, Any]] = []
     traces: List[Dict[str, Any]] = []
+    case_id = case_id_of(case)
+    gold_suspect = gold_suspect_of(case)
+    cf_info = counterfactual_info(case)
 
-    rounds_iter = tqdm(case["rounds"], desc=f'{case["case_id"]} rounds', leave=False)
+    rounds_iter = tqdm(case["rounds"], desc=f"{case_id} rounds", leave=False)
     for rnd in rounds_iter:
         revealed.append(rnd["evidence_text"])
         prompt = build_prompt(case, revealed)
         raw = model.inference(prompt)
         output = extract_text_from_response(raw)
         belief = parse_model_belief(output, case["suspects"])
+        belief["round_id"] = int(rnd["round_id"])
         round_preds.append(belief)
         rounds_iter.set_postfix({"top": belief["top_suspect"]})
         if verbose:
             probs_str = ", ".join(f"{k}={v:.3f}" for k, v in belief["probabilities"].items())
-            print(f'[{case["case_id"]} r{rnd["round_id"]}] top={belief["top_suspect"]} | probs: {probs_str}')
+            print(f"[{case_id} r{rnd['round_id']}] top={belief['top_suspect']} | probs: {probs_str}")
         traces.append(
             {
                 "round_id": rnd["round_id"],
@@ -184,22 +286,26 @@ def evaluate_case(model: TogetherModel, case: Dict[str, Any], verbose: bool = Fa
         )
 
     final_pred = round_preds[-1]["top_suspect"] if round_preds else None
-    final_correct = int(final_pred == case["gold_suspect"])
+    final_correct = int(final_pred == gold_suspect)
     round_briers = [
-        brier_score(r["probabilities"], case["gold_suspect"], case["suspects"])
+        brier_score(r["probabilities"], gold_suspect, case["suspects"])
         for r in round_preds
     ]
 
     return {
-        "case_id": case["case_id"],
-        "gold_suspect": case["gold_suspect"],
+        "case_id": case_id,
+        "gold_suspect": gold_suspect,
         "final_top_suspect": final_pred,
         "final_correct": final_correct,
+        "counterfactual": cf_info,
         "metrics": {
             "final_accuracy": final_correct,
             "update_consistency": update_consistency(round_preds),
             "brier_final": round_briers[-1] if round_briers else None,
             "brier_mean": (sum(round_briers) / len(round_briers)) if round_briers else None,
+            "flip_when_required": flip_when_required(round_preds, cf_info),
+            "stability_when_not_required": stability_when_not_required(round_preds, cf_info),
+            "recovery_latency": recovery_latency(round_preds, cf_info),
         },
         "round_predictions": round_preds,
         "round_traces": traces,
@@ -214,9 +320,24 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
             "update_consistency": None,
             "brier_final": None,
             "brier_mean": None,
+            "flip_when_required": None,
+            "stability_when_not_required": None,
+            "recovery_latency": None,
+            "counterfactual_cases": 0,
+            "stream_only_cases": 0,
         }
 
     n = len(results)
+    cf_results = [r for r in results if r.get("counterfactual", {}).get("has_counterfactual")]
+    stream_only_results = [r for r in results if not r.get("counterfactual", {}).get("has_counterfactual")]
+    fwr = [r["metrics"]["flip_when_required"] for r in results if r["metrics"]["flip_when_required"] is not None]
+    swnr = [
+        r["metrics"]["stability_when_not_required"]
+        for r in results
+        if r["metrics"]["stability_when_not_required"] is not None
+    ]
+    lat = [r["metrics"]["recovery_latency"] for r in results if r["metrics"]["recovery_latency"] is not None]
+
     return {
         "n_cases": n,
         "final_accuracy": sum(r["metrics"]["final_accuracy"] for r in results) / n,
@@ -225,6 +346,29 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         / max(1, sum(1 for r in results if r["metrics"]["brier_final"] is not None)),
         "brier_mean": sum(r["metrics"]["brier_mean"] for r in results if r["metrics"]["brier_mean"] is not None)
         / max(1, sum(1 for r in results if r["metrics"]["brier_mean"] is not None)),
+        "flip_when_required": (sum(fwr) / len(fwr)) if fwr else None,
+        "stability_when_not_required": (sum(swnr) / len(swnr)) if swnr else None,
+        "recovery_latency": (sum(lat) / len(lat)) if lat else None,
+        "counterfactual_cases": len(cf_results),
+        "stream_only_cases": len(stream_only_results),
+        "subsets": {
+            "counterfactual": {
+                "n_cases": len(cf_results),
+                "final_accuracy": (
+                    sum(r["metrics"]["final_accuracy"] for r in cf_results) / len(cf_results)
+                    if cf_results
+                    else None
+                ),
+            },
+            "stream_only": {
+                "n_cases": len(stream_only_results),
+                "final_accuracy": (
+                    sum(r["metrics"]["final_accuracy"] for r in stream_only_results) / len(stream_only_results)
+                    if stream_only_results
+                    else None
+                ),
+            },
+        },
     }
 
 

@@ -1,13 +1,9 @@
-import sys
-from typing import List, Dict, Union, Callable, Tuple
-from functools import partial
+from typing import List, Dict
 import random
-from copy import deepcopy
 
 random.seed(0)
 
-from src.madlib.madlib import Madlib
-from src.logic_tree.tree import LogicTree, LogicNode, LogicNodeFactType
+from src.logic_tree.tree import LogicTree, LogicNode
 from src.dataset_builder import DatasetBuilder
 from src.model.together import TogetherModel
 from src.validators import StructureValidator, ForbiddenTextValidator
@@ -58,7 +54,7 @@ class TeamAllocationDataset(DatasetBuilder):
             people: List[str],
     ):
         """
-        This function builds a matrix of sorts where we assign skill levels to each person and relatonship scores.
+        This function builds a matrix of sorts where we assign skill levels to each person and relationship scores.
 
         The gold assignment is guaranteed to have a higher sum of assignments than any other combination.
 

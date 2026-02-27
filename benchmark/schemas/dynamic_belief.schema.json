@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CS422DynamicBeliefInstance",
+  "type": "object",
+  "required": [
+    "id",
+    "track",
+    "question",
+    "suspects",
+    "answer_index",
+    "answer_text",
+    "rounds",
+    "metadata"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^dynamic_belief_"
+    },
+    "track": {
+      "type": "string",
+      "const": "dynamic_belief"
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "suspects": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "answer_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "answer_text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rounds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "round_id",
+          "evidence_text",
+          "evidence_type",
+          "is_counterfactual"
+        ],
+        "properties": {
+          "round_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "evidence_text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence_type": {
+            "type": "string",
+            "enum": [
+              "setup_sentence",
+              "tree_fact",
+              "counterfactual_update"
+            ]
+          },
+          "source_choice_index": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          },
+          "is_counterfactual": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "source_domain",
+        "source_case_index",
+        "source_question_index",
+        "update_type",
+        "has_counterfactual",
+        "flip_required",
+        "gold_before_index",
+        "gold_before_text",
+        "gold_after_index",
+        "gold_after_text",
+        "counterfactual_round_count",
+        "n_rounds"
+      ],
+      "properties": {
+        "source_domain": {
+          "type": "string"
+        },
+        "source_case_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_question_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "source_story_hash_id": {
+          "type": ["integer", "string", "null"]
+        },
+        "update_type": {
+          "type": "string",
+          "enum": ["stream_only", "counterfactual"]
+        },
+        "has_counterfactual": {
+          "type": "boolean"
+        },
+        "flip_required": {
+          "type": "boolean"
+        },
+        "gold_before_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gold_before_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "gold_after_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gold_after_text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "counterfactual_round_id": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "counterfactual_round_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "n_rounds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "setup_sentence_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "facts_per_choice": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

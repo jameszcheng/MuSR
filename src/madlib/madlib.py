@@ -2,8 +2,7 @@ import pprint
 from pathlib import Path
 import json
 import random
-from typing import List, Dict, Union, Type
-import copy
+from typing import List, Dict, Union
 
 
 class Madlib:
@@ -69,4 +68,3 @@ if __name__ == "__main__":
             for n, m, r in zip(suspects, motives, relationships)
         },
     })
-

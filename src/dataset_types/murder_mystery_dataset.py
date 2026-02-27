@@ -1,17 +1,15 @@
 from tqdm import tqdm
-import sys
-from typing import List, Dict, Union, Callable, Tuple
+from typing import List, Dict
 from functools import partial
 import random
 from copy import deepcopy
 
 random.seed(0)
 
-from src.madlib.madlib import Madlib
 from src.logic_tree.tree import LogicTree, LogicNode, LogicNodeFactType
 from src.dataset_builder import DatasetBuilder
 from src.model.model import Model
-from src.validators import StructureValidator, Validator, ForbiddenTextValidator, ModelValidator
+from src.validators import StructureValidator, ForbiddenTextValidator, ModelValidator
 
 # We use this to overwrite the original _base_completion_prompt_intro_ in dataset_builder.py
 # Specifically, this is used when we are creating the means, motive, and opportunity branches for a suspect.

@@ -2,7 +2,7 @@
 WARNING (or more like an aggressive note).
 
 A lot of functionality was implemented here for earlier experiments.  Most of which is not used.  We have left it here
-for backwards compatability with the current dataset as well as because why not.
+for backwards compatibility with the current dataset as well as because why not.
 
 ALSO NOTE:
 
@@ -16,8 +16,6 @@ See examples of how to create LogicNodes and LogicTrees in the __main__ part of 
 
 import random
 from typing import List, Any, Dict
-from enum import Enum
-import numpy as np
 from copy import deepcopy
 
 
@@ -626,4 +624,3 @@ if __name__ == "__main__":
     tv_scene_ex()
     eb_ex()
     action_ex()
-

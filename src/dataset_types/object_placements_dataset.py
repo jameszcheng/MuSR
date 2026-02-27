@@ -1,13 +1,10 @@
-import sys
-from typing import List, Dict, Union, Callable, Tuple
-from functools import partial
+from typing import List, Dict, Union, Tuple
 import random
 from copy import deepcopy
 
 random.seed(0)
 
-from src.madlib.madlib import Madlib
-from src.logic_tree.tree import LogicTree, LogicNode, LogicNodeFactType
+from src.logic_tree.tree import LogicTree, LogicNode
 from src.dataset_builder import DatasetBuilder
 from src.model.together import TogetherModel
 from src.validators import StructureValidator, ForbiddenTextValidator

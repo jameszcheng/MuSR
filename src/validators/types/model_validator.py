@@ -1,7 +1,6 @@
-import sys
-from typing import List, Union, Tuple, Optional
+from typing import List, Optional
 
-from src.logic_tree.tree import LogicNode, LogicNodeFactType
+from src.logic_tree.tree import LogicNode
 from src.validators.validator import Validator
 from src.model import Model
 from src.model.model import extract_text_from_response
@@ -36,6 +35,8 @@ class ModelValidator(Validator):
         self.prompt = prompt
         self.reason_why = reason_why
         self.answer_for_validity = answer_for_validity
+        # Keep legacy misspelling alias for backwards compatibility with any external code.
+        self.conditional = conditional
         self.condtional = conditional
         self.early_escape_model = early_escape_model
 
@@ -49,12 +50,12 @@ class ModelValidator(Validator):
             **kwargs
     ) -> bool:
 
-        if self.condtional:
+        if self.conditional:
             check_validity = False
 
             p = template.parent
             while p is not None:
-                if self.condtional.lower() in p.value.lower():
+                if self.conditional.lower() in p.value.lower():
                     check_validity = True
                     break
                 p = p.parent

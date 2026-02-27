@@ -1,11 +1,6 @@
-import os
-import itertools
-import time
 from datetime import timedelta
-import random
 
-from typing import List, Dict, Union, Any, Generator
-from tqdm import tqdm
+from typing import Any
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 from src.model.model import Model
@@ -41,7 +36,7 @@ class HFModel(Model):
 
         # Note initialized here so you can have instantiations of the model floating around.
         self.model = None
-        self.tokenize = None
+        self.tokenizer = None
 
     def load_model(self):
         self.model = AutoModelForCausalLM.from_pretrained(self.model_name, device_map="auto", load_in_4bit=self.load_in_4bit)

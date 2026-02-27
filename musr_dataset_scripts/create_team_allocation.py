@@ -9,12 +9,7 @@ Run as: "TOGETHER_API_KEY=api_key TOGETHER_NO_BANNER=1 uv run python musr_datase
 NOTE: By default, datasets go into "{ROOT_FOLDER}/datasets/{dataset_name}.json"
 """
 
-import pprint
-
-from jsonlines import jsonlines
 import json
-import sys
-from pathlib import Path
 import random
 from functools import partial
 
@@ -23,14 +18,9 @@ random.seed(0)
 from src import cache
 from src.model import TogetherModel
 from src.logic_tree.tree import LogicTree, LogicNode, LogicNodeFactType
-from src.madlib.madlib import Madlib
 from src.utils.paths import OUTPUT_FOLDER
 
 from src.dataset_types.team_allocation import TeamAllocationDataset
-
-import random
-from itertools import combinations
-
 
 cLogicNode = partial(LogicNode, fact_type=LogicNodeFactType.COMMONSENSE)
 
