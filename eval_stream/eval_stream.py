@@ -54,6 +54,33 @@ def counterfactual_info(case: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def parse_cf_round_id(cf_info: Dict[str, Any]) -> Optional[int]:
+    cf_round_id = cf_info.get("counterfactual_round_id")
+    try:
+        return int(cf_round_id)
+    except (TypeError, ValueError):
+        return None
+
+
+def active_gold_for_round(
+    round_id: int,
+    fallback_gold: str,
+    cf_info: Dict[str, Any],
+) -> str:
+    if not cf_info.get("has_counterfactual"):
+        return fallback_gold
+
+    cf_round_id = parse_cf_round_id(cf_info)
+    if cf_round_id is None:
+        return fallback_gold
+
+    gold_before = cf_info.get("gold_before_text")
+    gold_after = cf_info.get("gold_after_text") or fallback_gold
+    if round_id < cf_round_id and gold_before:
+        return str(gold_before)
+    return str(gold_after)
+
+
 def build_prompt(case: Dict[str, Any], revealed_evidence: List[str]) -> str:
     suspects = "\n".join(f"- {s}" for s in case["suspects"])
     evidence = "\n".join(f"{idx + 1}. {x}" for idx, x in enumerate(revealed_evidence))
@@ -126,10 +153,11 @@ def normalize_scores(scores: Dict[str, float], suspects: List[str]) -> Dict[str,
     return {s: v / total for s, v in vec.items()}
 
 
-def parse_model_belief(raw_text: str, suspects: List[str]) -> Dict[str, Any]:
+def parse_model_belief(raw_text: str, suspects: List[str], case_id: str = "", round_id: int = -1) -> Dict[str, Any]:
     parsed = try_parse_json(raw_text)
     top_suspect = None
     raw_scores: Dict[str, float] = {}
+    parse_warning: Optional[str] = None
 
     if parsed:
         maybe_top = parsed.get("top_suspect")
@@ -149,8 +177,16 @@ def parse_model_belief(raw_text: str, suspects: List[str]) -> Dict[str, Any]:
                     raw_scores[canonical] = float(v)
                 except (TypeError, ValueError):
                     continue
+        if not raw_scores:
+            parse_warning = "JSON parsed but no valid suspect scores found"
     else:
         top_suspect, raw_scores = parse_scores_text_fallback(raw_text, suspects)
+        if not raw_scores:
+            parse_warning = "No valid JSON in output — model likely truncated before producing JSON (increase --max-tokens)"
+
+    if parse_warning:
+        loc = f"[{case_id} r{round_id}] " if case_id else ""
+        print(f"WARNING {loc}{parse_warning}. Falling back to uniform distribution.")
 
     probs = normalize_scores(raw_scores, suspects)
     if top_suspect not in suspects:
@@ -160,6 +196,7 @@ def parse_model_belief(raw_text: str, suspects: List[str]) -> Dict[str, Any]:
         "top_suspect": top_suspect,
         "raw_scores": raw_scores,
         "probabilities": probs,
+        "parse_warning": parse_warning,
     }
 
 
@@ -172,18 +209,48 @@ def brier_score(probabilities: Dict[str, float], gold_suspect: str, suspects: Li
     return out
 
 
-def update_consistency(round_preds: List[Dict[str, Any]]) -> float:
+def update_consistency(round_preds: List[Dict[str, Any]], cf_info: Optional[Dict[str, Any]] = None) -> float:
     if len(round_preds) <= 1:
         return 1.0
 
+    if cf_info is None:
+        cf_info = {}
+
     tops = [r["top_suspect"] for r in round_preds]
-    flips = sum(1 for i in range(1, len(tops)) if tops[i] != tops[i - 1])
-    flip_penalty = flips / (len(tops) - 1)
+    cf_round_id = parse_cf_round_id(cf_info)
+    gold_after = cf_info.get("gold_after_text")
+    can_exempt_required_flip = bool(cf_info.get("has_counterfactual")) and bool(cf_info.get("flip_required")) and cf_round_id is not None and bool(gold_after)
+
+    penalized_flips = 0
+    required_flip_exempted = False
+    for i in range(1, len(tops)):
+        if tops[i] == tops[i - 1]:
+            continue
+        round_id = int(round_preds[i]["round_id"])
+        is_required_revision = (
+            can_exempt_required_flip
+            and not required_flip_exempted
+            and round_id >= cf_round_id
+            and tops[i] == gold_after
+        )
+        if is_required_revision:
+            required_flip_exempted = True
+            continue
+        penalized_flips += 1
+
+    flip_penalty = penalized_flips / (len(tops) - 1)
 
     final_top = tops[-1]
-    traj = [float(r["probabilities"].get(final_top, 0.0)) for r in round_preds]
-    decreases = sum(max(0.0, traj[i - 1] - traj[i]) for i in range(1, len(traj)))
-    trajectory_penalty = decreases / (len(traj) - 1)
+    traj_rounds = round_preds
+    if can_exempt_required_flip:
+        traj_rounds = [r for r in round_preds if int(r["round_id"]) >= cf_round_id]
+
+    if len(traj_rounds) <= 1:
+        trajectory_penalty = 0.0
+    else:
+        traj = [float(r["probabilities"].get(final_top, 0.0)) for r in traj_rounds]
+        decreases = sum(max(0.0, traj[i - 1] - traj[i]) for i in range(1, len(traj)))
+        trajectory_penalty = decreases / (len(traj) - 1)
 
     score = 1.0 - 0.5 * (flip_penalty + trajectory_penalty)
     return max(0.0, min(1.0, score))
@@ -193,11 +260,7 @@ def flip_when_required(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any
     if not cf_info["has_counterfactual"] or not cf_info["flip_required"]:
         return None
 
-    cf_round_id = cf_info["counterfactual_round_id"]
-    try:
-        cf_round_id = int(cf_round_id)
-    except (TypeError, ValueError):
-        return None
+    cf_round_id = parse_cf_round_id(cf_info)
     if cf_round_id is None:
         return None
 
@@ -211,18 +274,16 @@ def flip_when_required(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any
     gold_after = cf_info.get("gold_after_text")
     if not gold_after:
         return None
-    return float(pre_top != post_final_top and post_final_top == gold_after)
+    # Count as success either when the model flips correctly, or when it was already
+    # on the revised gold before the correction point and stays correct.
+    return float(post_final_top == gold_after and (pre_top != post_final_top or pre_top == gold_after))
 
 
 def stability_when_not_required(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any]) -> Optional[float]:
     if not cf_info["has_counterfactual"] or cf_info["flip_required"]:
         return None
 
-    cf_round_id = cf_info["counterfactual_round_id"]
-    try:
-        cf_round_id = int(cf_round_id)
-    except (TypeError, ValueError):
-        return None
+    cf_round_id = parse_cf_round_id(cf_info)
     if cf_round_id is None:
         return None
 
@@ -240,13 +301,11 @@ def recovery_latency(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any])
     if not cf_info["has_counterfactual"] or not cf_info["flip_required"]:
         return None
 
-    cf_round_id = cf_info["counterfactual_round_id"]
+    cf_round_id = parse_cf_round_id(cf_info)
     gold_after = cf_info["gold_after_text"]
-    try:
-        cf_round_id = int(cf_round_id)
-    except (TypeError, ValueError):
-        return None
     if not gold_after:
+        return None
+    if cf_round_id is None:
         return None
 
     for r in round_preds:
@@ -269,7 +328,7 @@ def evaluate_case(model: TogetherModel, case: Dict[str, Any], verbose: bool = Fa
         prompt = build_prompt(case, revealed)
         raw = model.inference(prompt)
         output = extract_text_from_response(raw)
-        belief = parse_model_belief(output, case["suspects"])
+        belief = parse_model_belief(output, case["suspects"], case_id=case_id, round_id=int(rnd["round_id"]))
         belief["round_id"] = int(rnd["round_id"])
         round_preds.append(belief)
         rounds_iter.set_postfix({"top": belief["top_suspect"]})
@@ -287,10 +346,19 @@ def evaluate_case(model: TogetherModel, case: Dict[str, Any], verbose: bool = Fa
 
     final_pred = round_preds[-1]["top_suspect"] if round_preds else None
     final_correct = int(final_pred == gold_suspect)
-    round_briers = [
-        brier_score(r["probabilities"], gold_suspect, case["suspects"])
-        for r in round_preds
-    ]
+    round_briers = []
+    for r in round_preds:
+        round_gold = active_gold_for_round(
+            round_id=int(r["round_id"]),
+            fallback_gold=gold_suspect,
+            cf_info=cf_info,
+        )
+        round_briers.append(brier_score(r["probabilities"], round_gold, case["suspects"]))
+
+    lat = recovery_latency(round_preds, cf_info)
+    recovered = None
+    if cf_info.get("has_counterfactual") and cf_info.get("flip_required"):
+        recovered = float(lat is not None)
 
     return {
         "case_id": case_id,
@@ -300,12 +368,13 @@ def evaluate_case(model: TogetherModel, case: Dict[str, Any], verbose: bool = Fa
         "counterfactual": cf_info,
         "metrics": {
             "final_accuracy": final_correct,
-            "update_consistency": update_consistency(round_preds),
+            "update_consistency": update_consistency(round_preds, cf_info=cf_info),
             "brier_final": round_briers[-1] if round_briers else None,
             "brier_mean": (sum(round_briers) / len(round_briers)) if round_briers else None,
             "flip_when_required": flip_when_required(round_preds, cf_info),
             "stability_when_not_required": stability_when_not_required(round_preds, cf_info),
-            "recovery_latency": recovery_latency(round_preds, cf_info),
+            "recovery_latency": lat,
+            "recovered_after_counterfactual": recovered,
         },
         "round_predictions": round_preds,
         "round_traces": traces,
@@ -337,6 +406,11 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         if r["metrics"]["stability_when_not_required"] is not None
     ]
     lat = [r["metrics"]["recovery_latency"] for r in results if r["metrics"]["recovery_latency"] is not None]
+    recovered = [
+        r["metrics"]["recovered_after_counterfactual"]
+        for r in results
+        if r["metrics"].get("recovered_after_counterfactual") is not None
+    ]
 
     return {
         "n_cases": n,
@@ -348,6 +422,7 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         / max(1, sum(1 for r in results if r["metrics"]["brier_mean"] is not None)),
         "flip_when_required": (sum(fwr) / len(fwr)) if fwr else None,
         "stability_when_not_required": (sum(swnr) / len(swnr)) if swnr else None,
+        "recovery_rate": (sum(recovered) / len(recovered)) if recovered else None,
         "recovery_latency": (sum(lat) / len(lat)) if lat else None,
         "counterfactual_cases": len(cf_results),
         "stream_only_cases": len(stream_only_results),
@@ -379,7 +454,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", type=str, default="ServiceNow-AI/Apriel-1.6-15b-Thinker")
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--max-tokens", type=int, default=32768)
     parser.add_argument("--verbose", action="store_true", help="Print per-round parsed belief updates.")
     return parser.parse_args()
 

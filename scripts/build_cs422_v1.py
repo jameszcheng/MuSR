@@ -102,29 +102,6 @@ def build_long_context(
     return out
 
 
-def build_tom(musr_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    for cidx, case in enumerate(musr_rows):
-        for qidx, q in enumerate(case.get("questions", [])):
-            out.append(
-                {
-                    "id": f"tom_{cidx}_q{qidx}",
-                    "track": "tom",
-                    "context": case["context"],
-                    "question": q["question"],
-                    "choices": q["choices"],
-                    "answer_index": int(q["answer"]),
-                    "answer_text": q["choices"][int(q["answer"])],
-                    "metadata": {
-                        "source_domain": "murder_mystery",
-                        "source_case_index": cidx,
-                        "source_question_index": qidx,
-                        "reasoning_tags": ["logical", "social", "tom"],
-                    },
-                }
-            )
-    return out
-
 
 def build_dynamic_belief(
     musr_rows: List[Dict[str, Any]],
@@ -168,7 +145,7 @@ def split_rows(rows: List[Dict[str, Any]], rng: random.Random) -> Tuple[List[Dic
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Build CS422 v1 benchmark with long_context, tom, and unified dynamic_belief.")
+    p = argparse.ArgumentParser(description="Build CS422 v1 benchmark with long_context and dynamic_belief.")
     p.add_argument("--musr", type=Path, default=Path("datasets/murder_mystery.json"))
     p.add_argument("--stream", type=Path, default=Path("datasets_stream/murder_mystery_stream.jsonl"))
     p.add_argument("--outdir", type=Path, default=Path("benchmark_runs/cs422_v1"))
@@ -199,7 +176,6 @@ def main() -> None:
 
     tracks = {
         "long_context": build_long_context(musr_rows, rng, args.distractors, args.repeat_factor),
-        "tom": build_tom(musr_rows),
         "dynamic_belief": build_dynamic_belief(
             musr_rows,
             rng,
@@ -211,7 +187,7 @@ def main() -> None:
     }
 
     manifest: Dict[str, Any] = {
-        "name": "cs422_v1",
+        "name": "cs422_v2",
         "seed": args.seed,
         "source_dataset": str(args.musr),
         "limit": args.limit,

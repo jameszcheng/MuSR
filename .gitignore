@@ -1,5 +1,16 @@
 **/outputs
 **/dump.rdb
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.blg
+*.bbl
+*.out
+*.toc
+*.synctex.gz
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

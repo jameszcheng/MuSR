@@ -94,21 +94,22 @@ def build_counterfactual_rounds(
 
     if flip_required:
         cf_a = (
-            f"Counterfactual update: A corrected report invalidates the strongest earlier evidence "
-            f"against {before_suspect}."
+            f"Correction: The key witness timeline previously used against {before_suspect} was entered "
+            f"with an incorrect timestamp and is now withdrawn."
         )
         cf_b = (
-            f"Counterfactual update: New evidence now best supports means, motive, and opportunity "
-            f"for {after_suspect}."
+            f"Follow-up records now place {after_suspect}'s phone near the scene during the murder window, "
+            f"show a recent purchase of the same weapon model, and include messages documenting escalating "
+            f"conflict with the victim."
         )
     else:
         cf_a = (
-            f"Counterfactual update: A previously suspicious clue about {after_suspect} is ruled out "
-            "as irrelevant."
+            f"Correction: A previously suspicious clue about {after_suspect} was misattributed after lab "
+            f"review and is now ruled irrelevant."
         )
         cf_b = (
-            f"Counterfactual update: Revised evidence still best supports means, motive, and opportunity "
-            f"for {before_suspect}."
+            f"Additional checks confirm {before_suspect}'s phone location near the scene during the murder "
+            f"window, a matching weapon purchase receipt, and recent threatening messages to the victim."
         )
 
     rounds.append(

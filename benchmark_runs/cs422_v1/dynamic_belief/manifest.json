@@ -1,0 +1,26 @@
+{
+  "name": "dynamic_belief_v1",
+  "source_dataset": "datasets/murder_mystery.json",
+  "seed": 7,
+  "limit": null,
+  "track_name": "dynamic_belief",
+  "config": {
+    "setup_sentences": 2,
+    "max_rounds": 40,
+    "counterfactual_rate": 0.7,
+    "flip_rate": 0.7,
+    "id_prefix": "dynamic_belief"
+  },
+  "tracks": {
+    "dynamic_belief": {
+      "total": 250,
+      "train": 175,
+      "dev": 37,
+      "test": 38,
+      "has_counterfactual_count": 176,
+      "stream_only_count": 74,
+      "counterfactual_flip_required_count": 128,
+      "counterfactual_flip_not_required_count": 48
+    }
+  }
+}

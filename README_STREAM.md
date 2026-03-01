@@ -130,11 +130,13 @@ Optional flags:
 - `update_consistency`:
   - penalizes top-suspect flips across rounds
   - penalizes confidence decreases for the final predicted suspect
-- `brier_final`: Brier score at final round
-- `brier_mean`: mean Brier across rounds
+  - in flip-required counterfactual cases, the first post-correction transition to revised gold is not penalized as instability
+- `brier_final`: Brier score at final round (unitless; lower is better)
+- `brier_mean`: mean Brier across rounds (uses active gold label before/after counterfactual onset)
 - `flip_when_required` (counterfactual subset): whether model flips prediction after required correction
 - `stability_when_not_required` (counterfactual subset): whether model avoids unnecessary flip
-- `recovery_latency` (counterfactual subset): rounds needed to reach revised gold after correction point
+- `recovery_rate` (flip-required subset): fraction of cases that ever reach revised gold after correction
+- `recovery_latency` (recovered flip-required subset): rounds needed to reach revised gold after correction point
 
 The eval summary now also reports subset stats for:
 - `counterfactual` cases
