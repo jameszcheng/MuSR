@@ -7,8 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from tqdm import tqdm
 
 from src import cache
-from src.model import TogetherModel
-from src.model.model import extract_text_from_response
+from src.model import TogetherModel, extract_text_from_response
 
 
 def read_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -385,6 +384,7 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not results:
         return {
             "n_cases": 0,
+            "parse_failure_cases": 0,
             "final_accuracy": None,
             "update_consistency": None,
             "brier_final": None,
@@ -412,8 +412,14 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         if r["metrics"].get("recovered_after_counterfactual") is not None
     ]
 
+    parse_failure_cases = sum(
+        1 for r in results
+        if any(rp.get("parse_warning") for rp in r.get("round_predictions", []))
+    )
+
     return {
         "n_cases": n,
+        "parse_failure_cases": parse_failure_cases,
         "final_accuracy": sum(r["metrics"]["final_accuracy"] for r in results) / n,
         "update_consistency": sum(r["metrics"]["update_consistency"] for r in results) / n,
         "brier_final": sum(r["metrics"]["brier_final"] for r in results if r["metrics"]["brier_final"] is not None)
@@ -449,12 +455,12 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run MuSR-Stream evaluation over streamed murder mystery evidence.")
-    parser.add_argument("--input", type=Path, default=Path("datasets_stream/murder_mystery_stream.jsonl"))
-    parser.add_argument("--output", type=Path, default=Path("outputs/musr_stream_eval.json"))
-    parser.add_argument("--model", type=str, default="ServiceNow-AI/Apriel-1.6-15b-Thinker")
+    parser.add_argument("--input", type=Path, default=Path("benchmark_runs/cs422_v2/dynamic_belief/test.jsonl"))
+    parser.add_argument("--output", type=Path, default=Path("outputs/eval_out.json"))
+    parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-7B-Instruct-Turbo")
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--temperature", type=float, default=0.0)
-    parser.add_argument("--max-tokens", type=int, default=32768)
+    parser.add_argument("--max-tokens", type=int, default=1024)
     parser.add_argument("--verbose", action="store_true", help="Print per-round parsed belief updates.")
     return parser.parse_args()
 

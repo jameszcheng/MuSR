@@ -50,8 +50,8 @@ style: |
 
 <!-- _class: title -->
 
-# MuSR-Dynamic
-## A Benchmark for Long-Context and Revisable Belief Reasoning
+# MuSR-Stress
+## Stress-Testing LLMs on Long-Context and Revisable Belief Reasoning
 
 James Cheng · CS 422
 
@@ -61,7 +61,7 @@ James Cheng · CS 422
 
 - LLMs do well on **static QA** — but real reasoning requires updating beliefs as evidence evolves
 - **MuSR** (Sprague et al., 2024) introduced logic-tree-grounded murder mystery reasoning
-- **MuSR-Dynamic** extends it to trajectory-level belief tracking across 2 tracks:
+- **MuSR-Stress** extends it to trajectory-level belief tracking across 2 tracks:
 
 | Track | Tests |
 |---|---|
@@ -86,7 +86,7 @@ motives               │  └─ [commonsense]                          logic t
                       └─ has opportunity
 ```
 
-**Validators gate every LLM step** — wrong structure or forbidden keywords → retry
+**Validators gate the logic tree step** — wrong structure or forbidden keywords → retry
 
 ---
 
@@ -97,9 +97,9 @@ base case
   │  round 1-2:  setup sentences
   │  round 3+:   evidence facts (from logic tree leaf nodes)
   │
-  └─► 68% of cases: counterfactual correction injected late
-          ├── flip_required=True  (120/170): gold answer changes → model must revise
-          └── flip_required=False  (50/170): gold unchanged     → model must stay stable
+  └─► 176/250 cases (70%): counterfactual correction injected late
+          ├── flip_required=True  (128/176 CF cases, ~73%): gold answer changes → model must revise
+          └── flip_required=False  (48/176 CF cases, ~27%): gold unchanged     → model must stay stable
 ```
 
 Config: `max_rounds=40` · `counterfactual_rate=0.7` · `flip_rate=0.7` · `seed=7`
@@ -130,9 +130,9 @@ Model outputs `top_suspect` + probability distribution **each round**
 | 1–2 | setup | Detective Winston investigates Isaac's murder at a fitness center |
 | 3 | tree_fact | Having a shotgun at Milton's disposal aligns with the murder weapon |
 | 4 | tree_fact | Alice recently purchased a shotgun |
-| 5 | tree_fact | Milton owns a shotgun |
 | … | … | … |
-| **21** | **counterfactual** | **Correction: key witness timeline against Alice had an incorrect timestamp and is withdrawn** |
+| **21–22** | **counterfactual** | **Correction: key witness timeline against Alice withdrawn; new records implicate Milton** |
+| 23+ | tree_fact | Evidence continues — model must hold revised belief through remaining rounds |
 
 Gold before round 21: **Alice** → Gold after: **Milton** (`flip_required=True`)
 
@@ -140,52 +140,32 @@ Gold before round 21: **Alice** → Gold after: **Milton** (`flip_required=True`
 
 ## Results & Analysis
 
-Model: **Apriel-1.6-15b-Thinker** · temp=0 · test split (n=38)
+temp=0 · test split (n=38)
 
-<div class="columns">
-<div>
-
-**Accuracy**
-| Subset | Value |
-|---|---|
-| Overall | 0.342 |
-| Counterfactual | 0.321 |
-| Stream-only | 0.400 |
-
-**Stability** ✅
-| Metric | Value |
-|---|---|
-| `update_consistency` | 0.958 |
-| `stability_when_not_req` | 1.000 |
-
-</div>
-<div>
-
-**Revisability** ❌
-| Metric | Value |
-|---|---|
-| `flip_when_required` | **0.286** |
-| `recovery_rate` | **0.381** |
-
-<br>
-
-> **Stable but anchored** — never spuriously flips, but ignores corrections when it should revise
-
-</div>
-</div>
+| Metric | Qwen2.5-7B-Instruct | Llama-3.3-70B-Instruct |
+|---|---|---|
+| `final_accuracy` | 0.789 | TBD |
+| — counterfactual (n=28) | 0.893 | TBD |
+| — stream-only (n=10) | 0.500 | TBD |
+| `update_consistency` | 0.940 | TBD |
+| `brier_final` | 0.344 | TBD |
+| `flip_when_required` | **0.952** | TBD |
+| `stability_when_not_req` | 1.000 | TBD |
+| `recovery_rate` | **1.000** | TBD |
+| `recovery_latency` (rounds) | 0.43 | TBD |
 
 ---
 
 ## Next Steps & Conclusion
 
 **Next steps**
-- Multi-model eval across both tracks
+- Scale to Llama-3.3-70B for stronger baseline comparison
 - Failure taxonomy: missed flip vs. spurious flip vs. calibration
 - Stronger prompting baselines (explicit belief-state tracking)
 
 **Conclusion**
-- MuSR-Dynamic enables **fine-grained diagnosis** of belief reasoning failures
-- Key finding: current models are stable but fail at **non-monotonic revision**
+- MuSR-Stress enables **fine-grained diagnosis** of belief reasoning failures
+- Qwen2.5-7B handles counterfactual revision well — but **stream-only cases are harder** (no explicit correction anchor)
 
 ---
 

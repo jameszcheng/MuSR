@@ -69,37 +69,12 @@ Example dynamic belief instance:
 }
 ```
 
-## 1) Convert Dataset to Stream Format
+## 1) Build Benchmark
 
-Sentence-by-sentence (default):
-
-```bash
-uv run python musr_stream/convert_murder_mystery_to_stream.py
-```
-
-Fixed chunking (`N=3` sentences per round):
+Build both tracks (long_context + dynamic_belief) with narrative-streamed evidence:
 
 ```bash
-uv run python musr_stream/convert_murder_mystery_to_stream.py --chunk-mode fixed --fixed-n 3
-```
-
-Useful options:
-- `--input` (default: `datasets/murder_mystery.json`)
-- `--output` (default: `datasets_stream/murder_mystery_stream.jsonl`)
-- `--limit` to convert only first N source cases
-
-## 1b) Build Unified Dynamic Belief Benchmark
-
-Build `dynamic_belief` with a mix of stream-only and counterfactual cases:
-
-```bash
-uv run python scripts/build_dynamic_belief.py \
-  --outdir benchmark_runs/cs422_v1/dynamic_belief \
-  --seed 7 \
-  --max-rounds 40 \
-  --setup-sentences 2 \
-  --counterfactual-rate 0.7 \
-  --flip-rate 0.7
+cd scripts && uv run python build_cs422_v2.py --seed 7
 ```
 
 ## 2) Run Streaming Eval
@@ -110,19 +85,19 @@ Set API key:
 export TOGETHER_API_KEY="..."
 ```
 
-Run eval (default limits to 1 case for smoke test):
+Run eval:
 
 ```bash
-uv run python -m eval_stream.eval_stream
+uv run python -m eval_stream.eval_stream --limit 38
 ```
 
 Optional flags:
-- `--input datasets_stream/murder_mystery_stream.jsonl`
-- `--output outputs/musr_stream_eval.json`
-- `--model ServiceNow-AI/Apriel-1.6-15b-Thinker`
+- `--input benchmark_runs/cs422_v2/dynamic_belief/test.jsonl`
+- `--output outputs/eval_out.json`
+- `--model Qwen/Qwen2.5-7B-Instruct-Turbo`
 - `--limit 10`
 - `--temperature 0.0`
-- `--max-tokens 512`
+- `--max-tokens 1024`
 
 ## 3) Metrics
 
@@ -144,6 +119,5 @@ The eval summary now also reports subset stats for:
 
 ## Expected Output Files
 
-- `datasets_stream/murder_mystery_stream.jsonl`: streamed dataset
-- `outputs/musr_stream_eval.json`: eval config + aggregate summary + per-case round traces
-- `benchmark_runs/cs422_v1/dynamic_belief/{train,dev,test}.jsonl`: unified dynamic belief benchmark
+- `benchmark_runs/cs422_v2/{long_context,dynamic_belief}/{train,dev,test}.jsonl`: benchmark splits
+- `outputs/eval_out.json`: eval config + aggregate summary + per-case round traces

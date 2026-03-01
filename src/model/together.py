@@ -1,13 +1,46 @@
 import os
 import random
 import time
+from abc import abstractmethod, ABCMeta
 from datetime import timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from together import Together
 
 from src import cache
-from src.model.model import Model
+
+
+class Model(metaclass=ABCMeta):
+    @abstractmethod
+    def inference(self, prompt: str, *args, **kwargs) -> Any:
+        raise NotImplementedError
+
+
+def extract_text_from_response(raw: Any) -> str:
+    if raw is None:
+        return ""
+    if isinstance(raw, str):
+        return raw
+    try:
+        choices = raw.get("choices") if isinstance(raw, dict) else getattr(raw, "choices", None)
+        if choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                msg = first.get("message")
+                if isinstance(msg, dict) and msg.get("content") is not None:
+                    return str(msg["content"])
+                if first.get("text") is not None:
+                    return str(first["text"])
+            else:
+                msg = getattr(first, "message", None)
+                if msg is not None and getattr(msg, "content", None) is not None:
+                    return str(msg.content)
+                if getattr(first, "text", None) is not None:
+                    return str(first.text)
+    except Exception:
+        pass
+    text = raw.get("text") if isinstance(raw, dict) else getattr(raw, "text", None)
+    return str(text) if text is not None else str(raw)
 
 
 class TogetherModel(Model):
@@ -82,7 +115,7 @@ class TogetherModel(Model):
 
         return self.client
 
-    def _extract_usage_tokens(self, raw: Any) -> (int, int):
+    def _extract_usage_tokens(self, raw: Any) -> Tuple[int, int]:
         usage = raw.get("usage") if isinstance(raw, dict) else getattr(raw, "usage", None)
         if usage is None:
             return 0, 0

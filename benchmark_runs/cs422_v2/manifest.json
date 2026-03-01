@@ -1,0 +1,32 @@
+{
+  "name": "cs422_v2",
+  "seed": 7,
+  "source_dataset": "../datasets/murder_mystery.json",
+  "limit": null,
+  "config": {
+    "distractors": 2,
+    "repeat_factor": 1,
+    "max_rounds": 40,
+    "counterfactual_rate": 0.7,
+    "flip_rate": 0.7,
+    "evidence_source": "narrative"
+  },
+  "tracks": {
+    "long_context": {
+      "total": 250,
+      "train": 175,
+      "dev": 37,
+      "test": 38
+    },
+    "dynamic_belief": {
+      "total": 250,
+      "train": 175,
+      "dev": 37,
+      "test": 38,
+      "has_counterfactual_count": 170,
+      "stream_only_count": 80,
+      "counterfactual_flip_required_count": 120,
+      "counterfactual_flip_not_required_count": 50
+    }
+  }
+}

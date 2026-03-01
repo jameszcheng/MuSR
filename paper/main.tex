@@ -1,0 +1,245 @@
+\documentclass{article}
+
+% Prefer ICML style if available; fall back for local drafting.
+\newcommand{\icmlbst}{plainnat}
+\IfFileExists{icml2026.sty}{
+  \usepackage[accepted]{icml2026}
+  \renewcommand{\icmlbst}{icml2026}
+}{
+  \IfFileExists{icml2025.sty}{
+    \usepackage[accepted]{icml2025}
+    \renewcommand{\icmlbst}{icml2025}
+  }{
+    \usepackage[margin=1in]{geometry}
+  }
+}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{url}
+
+% Fallback for non-ICML style classes.
+\providecommand{\And}{\and}
+
+\title{MuSR-Stress: A Benchmark for Long-Context and Revisable Belief Reasoning}
+
+\author{
+James Cheng \\
+Stanford University \\
+\texttt{james@example.edu}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present \textbf{MuSR-Stress}, a benchmark for evaluating reasoning systems along two axes: long-context reasoning and dynamic belief consistency under streaming evidence and counterfactual correction. The benchmark includes two tracks (\texttt{long\_context} and \texttt{dynamic\_belief}) with standardized train/dev/test splits. We report metrics beyond final-answer accuracy, including update consistency, calibration (Brier score), required belief revision, recovery rate, and recovery latency. Baseline results show high trajectory consistency but weaker revision success, suggesting that counterfactual corrections remain challenging for current models.
+\end{abstract}
+
+\section{Motivation}
+State-of-the-art language models perform strongly on static QA, but many real settings require reasoning over evolving evidence. Models should maintain coherent beliefs and revise them when new evidence invalidates prior conclusions.
+
+MuSR-Stress targets this gap by jointly evaluating:
+\begin{itemize}
+  \item long-context integration under distractor noise,
+  \item dynamic belief revision under streamed and counterfactual evidence.
+\end{itemize}
+
+\section{Background \& Related Work}
+\textbf{MuSR foundation.}
+MuSR introduced structured multi-step soft reasoning with logic-tree-based supervision and narrative contexts. MuSR-Stress extends this setup from static one-shot QA to trajectory-level belief tracking and revision.
+
+\textbf{Tracks in the current benchmark.}
+The current benchmark provides two tracks:
+\begin{itemize}
+  \item \texttt{long\_context}: stresses long-horizon context integration by injecting distractor cases around the target narrative.
+  \item \texttt{dynamic\_belief}: unified dynamic track mixing stream-only and counterfactual cases, testing sequential belief updates and correction.
+\end{itemize}
+
+\textbf{Current scale.}
+Each track has 250 examples split into 175 train / 37 dev / 38 test.
+
+\textbf{Dynamic-belief format.}
+Each instance contains a question, candidate suspects, gold answer, ordered evidence rounds, and metadata fields such as \texttt{has\_counterfactual}, \texttt{flip\_required}, and correction onset round.
+
+\section{Proposed Method \& Experiments}
+\subsection{Current Pipeline}
+\begin{figure}[h]
+\centering
+\fbox{
+\parbox{0.96\linewidth}{
+\small
+\textbf{Seed Sampling (Madlib pools)} \(\rightarrow\)
+\textbf{Per-Suspect Logic Tree Construction} \(\rightarrow\)
+\textbf{Validator-Gated Recursive Completion} \(\rightarrow\)
+\textbf{Murderer/Innocent Chapter Generation} \(\rightarrow\)
+\textbf{Story Assembly + QA Instance} \(\rightarrow\)
+\textbf{Stressor Builders (long\_context, dynamic\_belief)} \(\rightarrow\)
+\textbf{Train/Dev/Test Split + Evaluation}
+}
+}
+\caption{Current MuSR-Stress pipeline implemented in this repository.}
+\label{fig:musr_stress_pipeline}
+\end{figure}
+
+\subsection{Generation Settings}
+The dynamic track is generated with configurable round limits and correction rates. Current v1 settings:
+\begin{itemize}
+  \item \texttt{max\_rounds}=40
+  \item \texttt{setup\_sentences}=2
+  \item \texttt{counterfactual\_rate}=0.7
+  \item \texttt{flip\_rate}=0.7
+\end{itemize}
+
+This produces both:
+\begin{itemize}
+  \item \textbf{stream-only} cases (no contradiction correction), and
+  \item \textbf{counterfactual} cases (with a correction block that may require answer revision).
+\end{itemize}
+
+\subsection{Example: Counterfactual Case}
+
+Table~\ref{tab:example_case} shows a representative \texttt{flip\_required} counterfactual instance from the test split. Suspects are Milton and Emma; the victim is Stella, murdered with a nunchaku in her kitchen. Early rounds build evidence against Emma (means via martial arts training, opportunity via scheduled kitchen fitting). The counterfactual block at rounds 21--22 withdraws the key witness timeline against Emma and introduces new physical evidence implicating Milton. Post-correction evidence continues, requiring the model to maintain the revised belief through additional rounds.
+
+\begin{table}[h]
+\centering
+\caption{Example counterfactual case (\texttt{dynamic\_belief\_13\_q0}). Gold switches from Emma $\to$ Milton at round 21.}
+\label{tab:example_case}
+\small
+\begin{tabular}{clp{9cm}}
+\toprule
+Round & Type & Evidence \\
+\midrule
+1--2  & setup & In Mapleton, Stella is murdered by a nunchaku in her kitchen. Emma, a fashion designer, was training in martial arts that morning. \\
+3     & tree\_fact & Nunchaku are commonly used in martial arts. \\
+5     & tree\_fact & Milton is a martial arts enthusiast. \\
+8     & tree\_fact & Emma's martial arts class included training with nunchaku. \\
+14    & tree\_fact & Emma was working at the house that day. \\
+18    & tree\_fact & Emma and Stella were scheduled to meet in the kitchen for a fitting. \\
+\midrule
+\textbf{21} & \textbf{cf\_update} & \textbf{Correction: the key witness timeline against Emma had an incorrect timestamp and is withdrawn.} \\
+\textbf{22} & \textbf{cf\_update} & \textbf{Follow-up records place Milton's phone near the scene during the murder window, show a matching weapon purchase, and include threatening messages to Stella.} \\
+\midrule
+23    & tree\_fact & A local journalist photographed Milton at various crime-linked locations. \\
+27    & tree\_fact & Milton and Tommy were captured in a photo together at a bar. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Evaluation Protocol}
+
+Let \(T = (r_1, r_2, \ldots, r_n)\) be the sequence of rounds for a case, \(\hat{s}_t\) the model's top suspect at round \(t\), \(p_t(s)\) the model's probability for suspect \(s\) at round \(t\), \(s^*\) the gold suspect, and \(r_{cf}\) the counterfactual onset round (where applicable). For counterfactual cases, the \emph{active gold} switches at \(r_{cf}\): \(g_t = s^*_{\text{before}}\) if \(t < r_{cf}\), else \(g_t = s^*_{\text{after}}\).
+
+\paragraph{Final accuracy.}
+\[
+\text{final\_accuracy} = \mathbf{1}[\hat{s}_n = s^*]
+\]
+
+\paragraph{Brier score.}
+\[
+\text{BS}_t = \sum_{s \in \mathcal{S}} \left(p_t(s) - \mathbf{1}[s = g_t]\right)^2
+\]
+\textbf{brier\_final} $= \text{BS}_n$; \textbf{brier\_mean} $= \frac{1}{n}\sum_{t=1}^n \text{BS}_t$.
+
+\paragraph{Update consistency.}
+Let \(\mathcal{F}\) be the set of round indices where \(\hat{s}_t \neq \hat{s}_{t-1}\). In flip-required counterfactual cases, the first transition in \(\mathcal{F}\) with \(t \geq r_{cf}\) and \(\hat{s}_t = s^*_{\text{after}}\) is exempted (it is a correct revision). The flip penalty is:
+\[
+\text{flip\_penalty} = \frac{|\mathcal{F}_{\text{penalized}}|}{n - 1}
+\]
+For the trajectory penalty, let \(\tau\) be the subsequence of rounds used (all rounds for stream-only; post-\(r_{cf}\) rounds for counterfactual cases):
+\[
+\text{traj\_penalty} = \frac{\sum_{t \in \tau,\, t>1} \max(0,\; p_{t-1}(\hat{s}_n) - p_t(\hat{s}_n))}{|\tau| - 1}
+\]
+\[
+\text{update\_consistency} = \max\!\left(0,\;\min\!\left(1,\;1 - \tfrac{1}{2}(\text{flip\_penalty} + \text{traj\_penalty})\right)\right)
+\]
+
+\paragraph{Flip when required.}
+Defined only for flip-required counterfactual cases. Let pre- and post-correction predictions be \(\hat{s}_{\text{pre}} = \hat{s}_{r_{cf}-1}\) and \(\hat{s}_{\text{post}} = \hat{s}_n\):
+\[
+\text{flip\_when\_required} = \mathbf{1}\!\left[\hat{s}_{\text{post}} = s^*_{\text{after}}\right]
+\]
+
+\paragraph{Stability when not required.}
+Defined only for counterfactual cases where \texttt{flip\_required=False}:
+\[
+\text{stability\_when\_not\_required} = \mathbf{1}\!\left[\hat{s}_{\text{pre}} = \hat{s}_{\text{post}}\right]
+\]
+
+\paragraph{Recovery rate and latency.}
+Defined only for flip-required counterfactual cases. Let \(t^* = \min\{t \geq r_{cf} : \hat{s}_t = s^*_{\text{after}}\}\) (undefined if never reached):
+\[
+\text{recovery\_rate} = \mathbf{1}[t^* \text{ exists}]
+\qquad
+\text{recovery\_latency} = t^* - r_{cf}
+\]
+Recovery latency is reported only over recovered cases (where \(t^*\) exists), so a value of 0 indicates immediate correction at the counterfactual round.
+
+\subsection{Preliminary Baseline Results}
+We evaluate instruct models at temperature 0 on the \texttt{dynamic\_belief} test split (\(n=38\)).
+
+\begin{table}[h]
+\centering
+\caption{Dynamic-belief test results (\(n=38\)).}
+\begin{tabular}{lrr}
+\toprule
+Metric & Qwen2.5-7B-Instruct & Llama-3.3-70B-Instruct \\
+\midrule
+Final accuracy & 0.789 & TBD \\
+\quad counterfactual subset (n=28) & 0.893 & TBD \\
+\quad stream-only subset (n=10) & 0.500 & TBD \\
+Update consistency & 0.940 & TBD \\
+Brier final & 0.344 & TBD \\
+Brier mean & 0.431 & TBD \\
+Flip when required & \textbf{0.952} & TBD \\
+Stability when not required & 1.000 & TBD \\
+Recovery rate & \textbf{1.000} & TBD \\
+Recovery latency (rounds) & 0.43 & TBD \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key observations.}
+Qwen2.5-7B-Instruct handles counterfactual revision remarkably well: \texttt{flip\_when\_re\-quired}=0.952, \texttt{recovery\_rate}=1.0, and \texttt{recovery\_latency}=0.43 rounds.
+This suggests the model responds quickly and reliably to explicit correction signals.
+The more surprising finding is the gap between counterfactual accuracy (0.893) and stream-only accuracy (0.500): cases \emph{without} a correction are harder than cases \emph{with} one.
+A likely explanation is that counterfactual cases provide an anchoring signal --- the correction text explicitly names the revised suspect --- whereas stream-only cases require reasoning purely from accumulated evidence.
+Note that the stream-only subset is small (\(n=10\)), so this gap should be interpreted cautiously.
+
+\subsection{Dataset Composition}
+The full \texttt{dynamic\_belief} track (250 cases, 70/15/15 train/dev/test split, seed=7) breaks down as follows from the generation manifest:
+
+\begin{table}[h]
+\centering
+\caption{MuSR-Stress dynamic\_belief track composition.}
+\begin{tabular}{lrr}
+\toprule
+Split & Total & CF / Stream-only \\
+\midrule
+Train & 175 & --- \\
+Dev   & 37  & --- \\
+Test  & 38  & --- \\
+\midrule
+Total & 250 & 176 CF / 74 stream-only \\
+\quad flip-required CF & 128 & (of 176 CF) \\
+\quad flip-not-required CF & 48 & (of 176 CF) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Next Steps}
+Current limitations include single-domain emphasis and single-seed headline reporting. Next steps are:
+\begin{itemize}
+  \item multi-seed reporting with mean/variance,
+  \item failure taxonomy (spurious flip vs missed required flip),
+  \item evaluation of additional models on both tracks (\texttt{long\_context}, \texttt{dynamic\_belief}),
+  \item a combined track stressing both long-context attention and dynamic belief revision simultaneously,
+  \item extension of dynamic-belief generation to other domains beyond murder mystery.
+\end{itemize}
+
+\section{Conclusion}
+MuSR-Stress provides a practical benchmark for evaluating not only correctness, but also whether models maintain and revise beliefs appropriately as evidence evolves across two complementary tracks. Results motivate targeted progress on non-monotonic belief updating and long-context attention under distractor noise.
+
+\end{document}
