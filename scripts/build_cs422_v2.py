@@ -19,8 +19,8 @@ def write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def split_sentences(text: str) -> List[str]:
-    chunks = re.split(r"(?<=[.!?])\s+", text.strip())
+def split_paragraphs(text: str) -> List[str]:
+    chunks = re.split(r"\n\n+", text.strip())
     return [c.strip() for c in chunks if c and c.strip()]
 
 
@@ -125,7 +125,6 @@ def build_dynamic_belief_case(
     question: Dict[str, Any],
     question_idx: int,
     rng: random.Random,
-    max_rounds: int,
     counterfactual_rate: float,
     flip_rate: float,
 ) -> Dict[str, Any]:
@@ -138,29 +137,23 @@ def build_dynamic_belief_case(
     else:
         cf_answer_idx, flip_required = base_answer_idx, False
 
-    sentences = split_sentences(case.get("context", ""))
-    cf_insert_at = max(2, min(max_rounds - 2, max(3, max_rounds // 2)))
+    paragraphs = split_paragraphs(case.get("context", ""))
+    cf_insert_at = max(2, len(paragraphs) // 2)
 
     rounds: List[Dict[str, Any]] = []
     rid = 1
     cf_round_start = None
 
-    for sent in sentences:
-        if len(rounds) >= max_rounds:
-            break
+    for para in paragraphs:
         if has_counterfactual and cf_round_start is None and len(rounds) >= cf_insert_at:
             rounds.extend(build_counterfactual_rounds(choices[base_answer_idx], choices[cf_answer_idx], flip_required, rid))
             cf_round_start, rid = rid, rid + 2
-            if len(rounds) >= max_rounds:
-                break
-        rounds.append({"round_id": rid, "evidence_text": sent, "evidence_type": "narrative_sentence", "is_counterfactual": False})
+        rounds.append({"round_id": rid, "evidence_text": para, "evidence_type": "narrative_paragraph", "is_counterfactual": False})
         rid += 1
 
-    if has_counterfactual and cf_round_start is None and len(rounds) <= max_rounds - 2:
+    if has_counterfactual and cf_round_start is None:
         rounds.extend(build_counterfactual_rounds(choices[base_answer_idx], choices[cf_answer_idx], flip_required, rid))
-        cf_round_start, rid = rid, rid + 2
-
-    rounds = rounds[:max_rounds]
+        cf_round_start = rid
 
     emitted_cf_ids = [
         int(r["round_id"]) for r in rounds
@@ -196,7 +189,7 @@ def build_dynamic_belief_case(
             "counterfactual_round_id": cf_round_start,
             "counterfactual_round_count": len(emitted_cf_ids),
             "n_rounds": len(rounds),
-            "n_narrative_sentences": len(sentences),
+            "n_narrative_paragraphs": len(paragraphs),
         },
     }
 
@@ -204,14 +197,13 @@ def build_dynamic_belief_case(
 def build_dynamic_belief(
     musr_rows: List[Dict[str, Any]],
     rng: random.Random,
-    max_rounds: int,
     counterfactual_rate: float,
     flip_rate: float,
 ) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for cidx, case in enumerate(musr_rows):
         for qidx, q in enumerate(case.get("questions", [])):
-            out.append(build_dynamic_belief_case(case, cidx, q, qidx, rng, max_rounds, counterfactual_rate, flip_rate))
+            out.append(build_dynamic_belief_case(case, cidx, q, qidx, rng, counterfactual_rate, flip_rate))
     return out
 
 
@@ -225,7 +217,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--distractors", type=int, default=2)
     p.add_argument("--repeat-factor", type=int, default=1)
-    p.add_argument("--max-rounds", type=int, default=40)
     p.add_argument("--counterfactual-rate", type=float, default=0.7)
     p.add_argument("--flip-rate", type=float, default=0.7)
     return p.parse_args()
@@ -241,7 +232,7 @@ def main() -> None:
 
     tracks = {
         "long_context": build_long_context(musr_rows, rng, args.distractors, args.repeat_factor),
-        "dynamic_belief": build_dynamic_belief(musr_rows, rng, args.max_rounds, args.counterfactual_rate, args.flip_rate),
+        "dynamic_belief": build_dynamic_belief(musr_rows, rng, args.counterfactual_rate, args.flip_rate),
     }
 
     manifest: Dict[str, Any] = {
@@ -252,10 +243,9 @@ def main() -> None:
         "config": {
             "distractors": args.distractors,
             "repeat_factor": args.repeat_factor,
-            "max_rounds": args.max_rounds,
             "counterfactual_rate": args.counterfactual_rate,
             "flip_rate": args.flip_rate,
-            "evidence_source": "narrative",
+            "evidence_source": "narrative_paragraphs",
         },
         "tracks": {},
     }

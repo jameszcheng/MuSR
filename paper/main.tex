@@ -87,13 +87,12 @@ Each instance contains a question, candidate suspects, gold answer, ordered evid
 \subsection{Generation Settings}
 The dynamic track is generated with configurable round limits and correction rates. Current v2 settings:
 \begin{itemize}
-  \item \texttt{max\_rounds}=40
   \item \texttt{counterfactual\_rate}=0.7
   \item \texttt{flip\_rate}=0.7
-  \item \texttt{evidence\_source}=narrative
+  \item \texttt{evidence\_source}=narrative\_paragraphs
 \end{itemize}
 
-Evidence rounds are narrative sentences split from the case's story prose (not internal logic-tree facts), so the model reasons from the same natural-language narrative a human reader would see.
+Evidence rounds are paragraphs split on double newlines from the case's story prose. Paragraphs are the natural authoring unit --- each typically introduces a new scene beat, dialogue exchange, or clue --- and the full narrative is revealed with no round cap (13--41 paragraphs per case, median 24). The counterfactual block is injected at the midpoint paragraph.
 
 This produces both:
 \begin{itemize}

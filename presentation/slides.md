@@ -94,15 +94,15 @@ motives               │  └─ [commonsense]                          logic t
 
 ```
 base case
-  │  rounds 1–N:  narrative sentences split from story prose
-  │                (model sees the same text a human reader would)
+  │  rounds 1–N:  narrative paragraphs (full story, no cap)
+  │                15–40 rounds/case · median ~26 · each round = one scene beat
   │
-  └─► 170/250 cases (68%): counterfactual correction injected at midpoint
+  └─► 170/250 cases (68%): counterfactual correction injected at midpoint paragraph
           ├── flip_required=True  (120/170 CF, ~71%): gold answer changes → model must revise
           └── flip_required=False  (50/170 CF, ~29%): gold unchanged     → model must stay stable
 ```
 
-Config: `max_rounds=40` · `counterfactual_rate=0.7` · `flip_rate=0.7` · `seed=7`
+Config: `counterfactual_rate=0.7` · `flip_rate=0.7` · `seed=7`
 
 ---
 
@@ -133,10 +133,10 @@ Scores normalize to probabilities; model is re-prompted after each sentence.
 
 | Rounds | Type | Evidence |
 |---|---|---|
-| 1–20 | narrative | Story prose: Dale confronts victim, suspicious licenses, café presence, invitation to her house on day of murder |
-| **21** | **CF** | **Correction: Letti witness timeline had wrong timestamp — withdrawn** |
-| **22** | **CF** | **Dale's phone near scene + weapon purchase + threatening messages** |
-| 23–40 | narrative | Story continues — model must hold revised belief (**Dale**) |
+| 1–18 | narrative | Scene beats: Dale confronts victim, suspicious licenses, café presence, invitation to her house |
+| **19** | **CF** | **Correction: Letti witness timeline had wrong timestamp — withdrawn** |
+| **20** | **CF** | **Dale's phone near scene + weapon purchase + threatening messages** |
+| 21–39 | narrative | Story continues — model must hold revised belief (**Dale**) |
 
 ---
 

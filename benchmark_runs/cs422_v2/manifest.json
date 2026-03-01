@@ -6,10 +6,9 @@
   "config": {
     "distractors": 2,
     "repeat_factor": 1,
-    "max_rounds": 40,
     "counterfactual_rate": 0.7,
     "flip_rate": 0.7,
-    "evidence_source": "narrative"
+    "evidence_source": "narrative_paragraphs"
   },
   "tracks": {
     "long_context": {
