@@ -94,12 +94,12 @@ motives               │  └─ [commonsense]                          logic t
 
 ```
 base case
-  │  round 1-2:  setup sentences
-  │  round 3+:   evidence facts (from logic tree leaf nodes)
+  │  rounds 1–N:  narrative sentences split from story prose
+  │                (model sees the same text a human reader would)
   │
-  └─► 176/250 cases (70%): counterfactual correction injected late
-          ├── flip_required=True  (128/176 CF cases, ~73%): gold answer changes → model must revise
-          └── flip_required=False  (48/176 CF cases, ~27%): gold unchanged     → model must stay stable
+  └─► 170/250 cases (68%): counterfactual correction injected at midpoint
+          ├── flip_required=True  (120/170 CF, ~71%): gold answer changes → model must revise
+          └── flip_required=False  (50/170 CF, ~29%): gold unchanged     → model must stay stable
 ```
 
 Config: `max_rounds=40` · `counterfactual_rate=0.7` · `flip_rate=0.7` · `seed=7`
@@ -108,7 +108,13 @@ Config: `max_rounds=40` · `counterfactual_rate=0.7` · `flip_rate=0.7` · `seed
 
 ## Evaluation Protocol
 
-Model outputs `top_suspect` + probability distribution **each round**
+At **every round**, model receives accumulated evidence and must return:
+
+```json
+{ "top_suspect": "Dale", "scores": { "Dale": 8, "Letti": 2 } }
+```
+
+Scores normalize to probabilities; model is re-prompted after each sentence.
 
 | Metric | Measures |
 |---|---|
@@ -121,20 +127,22 @@ Model outputs `top_suspect` + probability distribution **each round**
 
 ---
 
-## Example: Counterfactual Case
+## Example: Counterfactual Case (`dynamic_belief_187_q0`)
 
-**Suspects:** Milton vs. Alice · **Murder weapon:** shotgun
+**Suspects:** Dale vs. Letti · **Victim:** Josephine
 
 | Round | Type | Evidence |
 |---|---|---|
-| 1–2 | setup | Detective Winston investigates Isaac's murder at a fitness center |
-| 3 | tree_fact | Having a shotgun at Milton's disposal aligns with the murder weapon |
-| 4 | tree_fact | Alice recently purchased a shotgun |
+| 1 | narrative | Winston investigates Josephine's death; Dale and Letti are suspects |
+| 4 | narrative | Witness saw Dale angrily confront Josephine after her new relationship |
+| 6 | narrative | Multiple suspicious driver's licenses found at Dale's house |
+| 8 | narrative | Josephine invited Dale to her house on the day of the murder |
 | … | … | … |
-| **21–22** | **counterfactual** | **Correction: key witness timeline against Alice withdrawn; new records implicate Milton** |
-| 23+ | tree_fact | Evidence continues — model must hold revised belief through remaining rounds |
+| **21** | **counterfactual** | **Correction: key witness timeline against Letti had wrong timestamp — withdrawn** |
+| **22** | **counterfactual** | **Dale's phone near scene + matching weapon purchase + threatening messages** |
+| 23–40 | narrative | Story continues — model must hold revised belief (Dale) |
 
-Gold before round 21: **Alice** → Gold after: **Milton** (`flip_required=True`)
+Gold before round 21: **Letti** → Gold after: **Dale** (`flip_required=True`)
 
 ---
 

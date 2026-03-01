@@ -85,13 +85,15 @@ Each instance contains a question, candidate suspects, gold answer, ordered evid
 \end{figure}
 
 \subsection{Generation Settings}
-The dynamic track is generated with configurable round limits and correction rates. Current v1 settings:
+The dynamic track is generated with configurable round limits and correction rates. Current v2 settings:
 \begin{itemize}
   \item \texttt{max\_rounds}=40
-  \item \texttt{setup\_sentences}=2
   \item \texttt{counterfactual\_rate}=0.7
   \item \texttt{flip\_rate}=0.7
+  \item \texttt{evidence\_source}=narrative
 \end{itemize}
+
+Evidence rounds are narrative sentences split from the case's story prose (not internal logic-tree facts), so the model reasons from the same natural-language narrative a human reader would see.
 
 This produces both:
 \begin{itemize}
@@ -101,32 +103,71 @@ This produces both:
 
 \subsection{Example: Counterfactual Case}
 
-Table~\ref{tab:example_case} shows a representative \texttt{flip\_required} counterfactual instance from the test split. Suspects are Milton and Emma; the victim is Stella, murdered with a nunchaku in her kitchen. Early rounds build evidence against Emma (means via martial arts training, opportunity via scheduled kitchen fitting). The counterfactual block at rounds 21--22 withdraws the key witness timeline against Emma and introduces new physical evidence implicating Milton. Post-correction evidence continues, requiring the model to maintain the revised belief through additional rounds.
+Table~\ref{tab:example_case} shows a representative \texttt{flip\_required} counterfactual instance (\texttt{dynamic\_belief\_187\_q0}) from the test split. Suspects are Dale and Letti; the victim is Josephine. Early narrative rounds describe Dale's confrontation with Josephine, his suspicious multiple driver's licenses, his frequent presence at her café, and an invitation to her house on the day of the murder --- all pointing toward Dale. At round 21 the counterfactual block withdraws the witness timeline against Letti and introduces new physical evidence (phone location, weapon purchase, threatening messages) implicating Dale. Post-correction narrative continues, requiring the model to hold the revised belief through the remaining rounds.
 
 \begin{table}[h]
 \centering
-\caption{Example counterfactual case (\texttt{dynamic\_belief\_13\_q0}). Gold switches from Emma $\to$ Milton at round 21.}
+\caption{Example counterfactual case (\texttt{dynamic\_belief\_187\_q0}). Gold switches from Letti $\to$ Dale at round 21.}
 \label{tab:example_case}
 \small
 \begin{tabular}{clp{9cm}}
 \toprule
 Round & Type & Evidence \\
 \midrule
-1--2  & setup & In Mapleton, Stella is murdered by a nunchaku in her kitchen. Emma, a fashion designer, was training in martial arts that morning. \\
-3     & tree\_fact & Nunchaku are commonly used in martial arts. \\
-5     & tree\_fact & Milton is a martial arts enthusiast. \\
-8     & tree\_fact & Emma's martial arts class included training with nunchaku. \\
-14    & tree\_fact & Emma was working at the house that day. \\
-18    & tree\_fact & Emma and Stella were scheduled to meet in the kitchen for a fitting. \\
+1  & narrative & Detective Winston investigates Josephine's death; prime suspects Dale and Letti are under the microscope. \\
+4  & narrative & A witness statement details how Dale angrily confronted Josephine after discovering her new relationship. \\
+6  & narrative & Reports include Josephine's new lover, the confrontation with Dale, suspicious multiple driver's licenses found at Dale's house, and Dale's frequent presence at the victim's café. \\
+8  & narrative & Josephine herself handed Dale an invitation to her house on the day of the murder, when no one else was home. \\
+19 & narrative & Winston noticed Dale hastily shove a few driver's licenses into his wallet. \\
 \midrule
-\textbf{21} & \textbf{cf\_update} & \textbf{Correction: the key witness timeline against Emma had an incorrect timestamp and is withdrawn.} \\
-\textbf{22} & \textbf{cf\_update} & \textbf{Follow-up records place Milton's phone near the scene during the murder window, show a matching weapon purchase, and include threatening messages to Stella.} \\
+\textbf{21} & \textbf{counterfactual} & \textbf{Correction: the key witness timeline against Letti had an incorrect timestamp and is now withdrawn.} \\
+\textbf{22} & \textbf{counterfactual} & \textbf{Follow-up records place Dale's phone near the scene during the murder window, show a matching weapon purchase, and include messages documenting escalating conflict with Josephine.} \\
 \midrule
-23    & tree\_fact & A local journalist photographed Milton at various crime-linked locations. \\
-27    & tree\_fact & Milton and Tommy were captured in a photo together at a bar. \\
+23+ & narrative & Story continues --- model must maintain revised belief (Dale) through rounds 23--40. \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{Prompt Format}
+
+At each round $t$ the model receives a single prompt containing the question, the suspect list, and all evidence accumulated so far (rounds 1 through $t$), then returns a JSON object with a \texttt{top\_suspect} field and a \texttt{scores} dict (one entry per suspect). Scores are normalized to a probability distribution for metric computation. Figure~\ref{fig:prompt} shows the prompt template.
+
+\begin{figure}[h]
+\centering
+\begin{minipage}{0.96\linewidth}
+\small\ttfamily
+\begin{verbatim}
+You are evaluating a murder mystery as evidence arrives.
+
+Question: Who is the most likely murderer?
+Suspects:
+- Dale
+- Letti
+
+Evidence so far:
+1. [round 1 evidence text]
+2. [round 2 evidence text]
+...
+k. [round k evidence text]
+
+Return JSON only with this schema:
+{
+  "top_suspect": "<name>",
+  "scores": {
+    "<suspect_1>": <number>,
+    "<suspect_2>": <number>
+  }
+}
+
+Rules:
+- Include every suspect exactly once in "scores".
+- Scores can be any non-negative numbers.
+- "top_suspect" must be one of the suspects.
+\end{verbatim}
+\end{minipage}
+\caption{Prompt sent to the model at each round $t$. Evidence is accumulated incrementally; the model re-evaluates after every new sentence.}
+\label{fig:prompt}
+\end{figure}
 
 \subsection{Evaluation Protocol}
 
@@ -222,9 +263,9 @@ Train & 175 & --- \\
 Dev   & 37  & --- \\
 Test  & 38  & --- \\
 \midrule
-Total & 250 & 176 CF / 74 stream-only \\
-\quad flip-required CF & 128 & (of 176 CF) \\
-\quad flip-not-required CF & 48 & (of 176 CF) \\
+Total & 250 & 170 CF / 80 stream-only \\
+\quad flip-required CF & 120 & (of 170 CF) \\
+\quad flip-not-required CF & 50 & (of 170 CF) \\
 \bottomrule
 \end{tabular}
 \end{table}
