@@ -127,22 +127,16 @@ Scores normalize to probabilities; model is re-prompted after each sentence.
 
 ---
 
-## Example: Counterfactual Case (`dynamic_belief_187_q0`)
+## Example: Counterfactual Case
 
-**Suspects:** Dale vs. Letti · **Victim:** Josephine
+**Suspects:** Dale vs. Letti · Gold flips at round 21 (`flip_required=True`)
 
-| Round | Type | Evidence |
+| Rounds | Type | Evidence |
 |---|---|---|
-| 1 | narrative | Winston investigates Josephine's death; Dale and Letti are suspects |
-| 4 | narrative | Witness saw Dale angrily confront Josephine after her new relationship |
-| 6 | narrative | Multiple suspicious driver's licenses found at Dale's house |
-| 8 | narrative | Josephine invited Dale to her house on the day of the murder |
-| … | … | … |
-| **21** | **counterfactual** | **Correction: key witness timeline against Letti had wrong timestamp — withdrawn** |
-| **22** | **counterfactual** | **Dale's phone near scene + matching weapon purchase + threatening messages** |
-| 23–40 | narrative | Story continues — model must hold revised belief (Dale) |
-
-Gold before round 21: **Letti** → Gold after: **Dale** (`flip_required=True`)
+| 1–20 | narrative | Story prose: Dale confronts victim, suspicious licenses, café presence, invitation to her house on day of murder |
+| **21** | **CF** | **Correction: Letti witness timeline had wrong timestamp — withdrawn** |
+| **22** | **CF** | **Dale's phone near scene + weapon purchase + threatening messages** |
+| 23–40 | narrative | Story continues — model must hold revised belief (**Dale**) |
 
 ---
 
