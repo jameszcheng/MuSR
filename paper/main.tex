@@ -279,6 +279,103 @@ Current limitations include single-domain emphasis and single-seed headline repo
   \item extension of dynamic-belief generation to other domains beyond murder mystery.
 \end{itemize}
 
+\appendix
+
+\section{Example Prompt at Counterfactual Round}
+\label{app:prompt_example}
+
+The following is the literal prompt sent to the model at round 20 of case \texttt{dynamic\_belief\_187\_q0} --- immediately after the two-sentence counterfactual block (rounds 19--20) has been appended to 18 prior narrative paragraphs. The model must now revise its belief from Letti to Dale.
+
+\begin{figure}[h]
+\centering
+\begin{minipage}{0.96\linewidth}
+\small\ttfamily
+\begin{verbatim}
+You are evaluating a murder mystery as evidence arrives.
+
+Question: Who is the most likely murderer?
+Suspects:
+- Dale
+- Letti
+
+Evidence so far:
+1. An explosion rocking a suburban home leads Detective
+   Winston into a web of deception and intrigue as he
+   investigates the untimely death of Josephine, with
+   prime suspects Dale and Letti under the microscope.
+2. Winston laid out the photographs, collected during the
+   start of his investigation on his office table. The
+   victim, Josephine, was a bright young woman with an
+   infectious grin who had recently started dating someone
+   new. Winston sifted through a basket of witness
+   statements, one of which detailing how Dale had been
+   seen angrily yelling at Josephine after discovering her
+   new relationship.
+3. He mulled over the reports that had come in. Josephine's
+   new lover, the wrathful confrontation with Dale, the
+   police going through Dale's house and coming up with
+   suspicious multiple driver's licenses, Dale's frequent
+   presence at the victim's frequented cafe, and his
+   predilection to appear wherever Josephine was.
+4. Winston shook his head slightly, trying to dissipate the
+   fog of conclusions starting to form. Stacked in the pile
+   of evidence was a slightly crumpled invitation handed by
+   Josephine herself to Dale, inviting him to her house on
+   the day of the murder, when no one else was home.
+5. Rubbing his brow, Winston decided to pay Dale a visit.
+6. The first thing that jumped out at him when Dale opened
+   the door to his house was the cropped hair and roughened
+   hands of an electrician at work.
+7. "Dale," Winston greeted.
+8. "Detective..." The greeting was strained and curt.
+9. Winston decided to ignore it. "Heard you had a little
+   talk with Josephine recently," he started casually.
+10. Dale tensed up a bit but didn't deny it.
+    "We had a few words."
+11. Winston made a noncommittal noise. "Seems you frequent
+    the same cafe Josephine liked," he commented, carefully
+    gauging Dale's reaction.
+12. "Just like a good cup of Joe," Dale replied, his tense
+    posture relaxing slightly.
+13. Winston noticed Dale hastily shove a few driver's
+    licenses into his wallet. "I also heard you lose your
+    license often," he added.
+14. Dale shrugged sheepishly. "Never fails -- always
+    forgetting where I put those damn things."
+15. Winston noticed a particular license. "All different
+    names."
+16. "It's a private joke," Dale defended hurriedly.
+17. "Speaking of private matters, Josephine seemed to think
+    quite highly of you. She asked you to her place I
+    understand," Winston continued.
+18. "That's true," Dale confirmed.
+19. [CORRECTION] The key witness timeline previously used
+    against Letti was entered with an incorrect timestamp
+    and is now withdrawn.
+20. [CORRECTION] Follow-up records now place Dale's phone
+    near the scene during the murder window, show a recent
+    purchase of the same weapon model, and include messages
+    documenting escalating conflict with the victim.
+
+Return JSON only with this schema:
+{
+  "top_suspect": "<name>",
+  "scores": {
+    "<suspect_1>": <number>,
+    "<suspect_2>": <number>
+  }
+}
+
+Rules:
+- Include every suspect exactly once in "scores".
+- Scores can be any non-negative numbers.
+- "top_suspect" must be one of the suspects.
+\end{verbatim}
+\end{minipage}
+\caption{Literal prompt at round 20 of \texttt{dynamic\_belief\_187\_q0}. Items 19--20 are the counterfactual correction sentences; items 1--18 are narrative paragraphs from the original story. The expected model response is \texttt{\{"top\_suspect": "Dale", "scores": \{"Dale": ..., "Letti": ...\}\}}.}
+\label{fig:literal_prompt}
+\end{figure}
+
 \section{Conclusion}
 MuSR-Stress provides a practical benchmark for evaluating not only correctness, but also whether models maintain and revise beliefs appropriately as evidence evolves across two complementary tracks. Results motivate targeted progress on non-monotonic belief updating and long-context attention under distractor noise.
 
