@@ -146,15 +146,15 @@ temp=0 · test split (n=38)
 
 | Metric | Qwen2.5-7B-Instruct | Llama-3.3-70B-Instruct |
 |---|---|---|
-| `final_accuracy` | 0.789 | TBD |
-| — counterfactual (n=28) | 0.893 | TBD |
-| — stream-only (n=10) | 0.500 | TBD |
-| `update_consistency` | 0.940 | TBD |
-| `brier_final` | 0.344 | TBD |
-| `flip_when_required` | **0.952** | TBD |
-| `stability_when_not_req` | 1.000 | TBD |
+| `final_accuracy` | 0.763 | TBD |
+| — counterfactual (n=22) | 0.864 | TBD |
+| — stream-only (n=16) | 0.625 | TBD |
+| `update_consistency` | 0.972 | TBD |
+| `brier_final` | 0.396 | TBD |
+| `flip_when_required` | **0.889** | TBD |
+| `stability_when_not_req` | 0.750 | TBD |
 | `recovery_rate` | **1.000** | TBD |
-| `recovery_latency` (rounds) | 0.43 | TBD |
+| `recovery_latency` (rounds) | 0.72 | TBD |
 
 ---
 
@@ -167,7 +167,9 @@ temp=0 · test split (n=38)
 
 **Conclusion**
 - MuSR-Stress enables **fine-grained diagnosis** of belief reasoning failures
-- Qwen2.5-7B handles counterfactual revision well — but **stream-only cases are harder** (no explicit correction anchor)
+- Qwen2.5-7B handles required revisions well (`flip_when_required`=0.889, `recovery_rate`=1.0)
+- New failure mode with paragraph chunks: **spurious flips** when no correction is needed (`stability`=0.750)
+- CF accuracy still higher than stream-only (0.864 vs 0.625) — explicit anchoring signal helps
 
 ---
 

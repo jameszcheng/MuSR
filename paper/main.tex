@@ -222,31 +222,29 @@ We evaluate instruct models at temperature 0 on the \texttt{dynamic\_belief} tes
 
 \begin{table}[h]
 \centering
-\caption{Dynamic-belief test results (\(n=38\)).}
+\caption{Dynamic-belief test results (\(n=38\), paragraph-based rounds).}
 \begin{tabular}{lrr}
 \toprule
 Metric & Qwen2.5-7B-Instruct & Llama-3.3-70B-Instruct \\
 \midrule
-Final accuracy & 0.789 & TBD \\
-\quad counterfactual subset (n=28) & 0.893 & TBD \\
-\quad stream-only subset (n=10) & 0.500 & TBD \\
-Update consistency & 0.940 & TBD \\
-Brier final & 0.344 & TBD \\
-Brier mean & 0.431 & TBD \\
-Flip when required & \textbf{0.952} & TBD \\
-Stability when not required & 1.000 & TBD \\
+Final accuracy & 0.763 & TBD \\
+\quad counterfactual subset (n=22) & 0.864 & TBD \\
+\quad stream-only subset (n=16) & 0.625 & TBD \\
+Update consistency & 0.972 & TBD \\
+Brier final & 0.396 & TBD \\
+Brier mean & 0.461 & TBD \\
+Flip when required & \textbf{0.889} & TBD \\
+Stability when not required & 0.750 & TBD \\
 Recovery rate & \textbf{1.000} & TBD \\
-Recovery latency (rounds) & 0.43 & TBD \\
+Recovery latency (rounds) & 0.72 & TBD \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \textbf{Key observations.}
-Qwen2.5-7B-Instruct handles counterfactual revision remarkably well: \texttt{flip\_when\_re\-quired}=0.952, \texttt{recovery\_rate}=1.0, and \texttt{recovery\_latency}=0.43 rounds.
-This suggests the model responds quickly and reliably to explicit correction signals.
-The more surprising finding is the gap between counterfactual accuracy (0.893) and stream-only accuracy (0.500): cases \emph{without} a correction are harder than cases \emph{with} one.
-A likely explanation is that counterfactual cases provide an anchoring signal --- the correction text explicitly names the revised suspect --- whereas stream-only cases require reasoning purely from accumulated evidence.
-Note that the stream-only subset is small (\(n=10\)), so this gap should be interpreted cautiously.
+Qwen2.5-7B-Instruct still handles counterfactual revision well: \texttt{flip\_when\_required}=0.889 and \texttt{recovery\_rate}=1.0, though \texttt{recovery\_latency} increased to 0.72 rounds compared to the sentence-based format, suggesting the model takes slightly longer to commit to the revised gold when evidence arrives in paragraph chunks.
+\texttt{stability\_when\_not\_required} dropped to 0.750, indicating the model sometimes flips unnecessarily on a paragraph-sized evidence burst even when no correction is present --- a new failure mode surfaced by the coarser granularity.
+The gap between counterfactual accuracy (0.864) and stream-only accuracy (0.625) persists but has narrowed relative to the sentence-based run, likely because paragraph-sized chunks carry more information per round and help the model reason from accumulated narrative evidence without an explicit correction anchor.
 
 \subsection{Dataset Composition}
 The full \texttt{dynamic\_belief} track (250 cases, 70/15/15 train/dev/test split, seed=7) breaks down as follows from the generation manifest:
