@@ -35,6 +35,15 @@ style: |
   td {
     padding: 6px 16px;
   }
+  img {
+    max-width: min(92%, 1000px);
+    max-height: min(62vh, 520px);
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+    margin: 0.4em auto 0;
+  }
   .columns {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -45,6 +54,23 @@ style: |
     flex-direction: column;
     justify-content: center;
     text-align: center;
+  }
+  section.plot {
+    font-size: 24px;
+  }
+  section.plot h2 {
+    font-size: 32px;
+    margin-bottom: 0.2em;
+  }
+  section.plot p {
+    margin: 0.2em 0;
+  }
+  section.plot ul {
+    margin-top: 0.3em;
+  }
+  section.plot img {
+    max-width: min(88%, 900px);
+    max-height: min(44vh, 400px);
   }
 ---
 
@@ -60,8 +86,8 @@ James Cheng · CS 422
 ## Motivation & Background
 
 - LLMs do well on **static QA** — but real reasoning requires updating beliefs as evidence evolves
-- **MuSR** (Sprague et al., 2024) introduced logic-tree-grounded murder mystery reasoning
-- **MuSR-Stress** extends it to trajectory-level belief tracking across 2 tracks:
+- **MuSR** (Sprague et al., 2024) synthetically generates logic-tree-grounded QA across murder mystery, object placement, and team allocation
+- **MuSR-Stress** extends the murder mystery domain to trajectory-level belief tracking across 2 tracks:
 
 | Track | Tests |
 |---|---|
@@ -95,86 +121,106 @@ motives               │  └─ [commonsense]                          logic t
 ```
 base case
   │  rounds 1–N:  narrative paragraphs (full story, no cap)
-  │                15–40 rounds/case · median ~26 · each round = one scene beat
+  │                13–43 rounds/case · median 25 · each round = one scene beat
   │
-  └─► 170/250 cases (68%): counterfactual correction injected at midpoint paragraph
+  └─► 170/250 cases (68%): counterfactual correction appended after final paragraph
           ├── flip_required=True  (120/170 CF, ~71%): gold answer changes → model must revise
           └── flip_required=False  (50/170 CF, ~29%): gold unchanged     → model must stay stable
 ```
 
-Config: `counterfactual_rate=0.7` · `flip_rate=0.7` · `seed=7`
+Config: `counterfactual_rate=0.7` (70% of cases get CF block) · `flip_rate=0.7` (of those, 70% require gold to change) · `seed=7` (reproducibility)
 
 ---
 
 ## Evaluation Protocol
 
-At **every round**, model receives accumulated evidence and must return:
+Evidence streamed round-by-round; model re-prompted at each round.
 
-```json
-{ "top_suspect": "Dale", "scores": { "Dale": 8, "Letti": 2 } }
-```
-
-Scores normalize to probabilities; model is re-prompted after each sentence.
-
-| Metric | Measures |
+| Metric | What it captures |
 |---|---|
-| `final_accuracy` | Final prediction matches gold |
-| `update_consistency` | Penalizes unjustified trajectory flips |
-| `brier_final / mean` | Calibration error |
-| `flip_when_required` | Does model revise after required correction? |
-| `stability_when_not_required` | Does model avoid spurious flips? |
-| `recovery_rate` | Does model ever reach revised gold? |
+| `final_accuracy` / `brier_final` | Correctness and calibration |
+| `flip_when_required` / `stability_when_not_required` | CF revision success / spurious flip rate |
+| `belief_trajectory` | P(gold) curve over rounds — how beliefs evolve |
+| `evidence_responsiveness` | Mean distributional shift between rounds (TV distance) |
 
 ---
 
 ## Example: Counterfactual Case
 
-**Suspects:** Dale vs. Letti · Gold flips at round 21 (`flip_required=True`)
+**Suspects:** Dale vs. Letti · Gold flips after final narrative round (`flip_required=True`)
 
 | Rounds | Type | Evidence |
 |---|---|---|
-| 1–18 | narrative | Scene beats: Dale confronts victim, suspicious licenses, café presence, invitation to her house |
-| **19** | **CF** | **Correction: Letti witness timeline had wrong timestamp — withdrawn** |
-| **20** | **CF** | **Dale's phone near scene + weapon purchase + threatening messages** |
-| 21–39 | narrative | Story continues — model must hold revised belief (**Dale**) |
+| 1–37 | narrative | Full story evidence stream |
+| **38** | **CF** | **Correction: key witness timestamp used against Letti was wrong and withdrawn** |
+| **39** | **CF** | **Dale phone/location + weapon purchase + escalating conflict records** |
+
+CF block appended as final 2 rounds — tests whether model can override accumulated belief.
 
 ---
 
-## Results & Analysis
+## Results (Qwen, cs422_v3 test, n=38)
 
-temp=0 · test split (n=38)
+| Metric | Qwen2.5-7B (v3) |
+|---|---|
+| `final_accuracy` | 0.816 |
+| — CF (n=22) | 0.955 |
+| — stream-only (n=16) | 0.625 |
+| `flip_when_required` (n=18) | 1.000 |
+| — `flip_diagnostic` (n=12) | 1.000 |
+| `stability_when_not_required` | 0.750 |
+| `evidence_responsiveness` | 0.041 |
 
-| Metric | Qwen2.5-7B-Instruct | Llama-3.3-70B-Instruct |
-|---|---|---|
-| `final_accuracy` | 0.763 | TBD |
-| — counterfactual (n=22) | 0.864 | TBD |
-| — stream-only (n=16) | 0.625 | TBD |
-| `update_consistency` | 0.972 | TBD |
-| `brier_final` | 0.396 | TBD |
-| `flip_when_required` | **0.889** | TBD |
-| `stability_when_not_req` | 0.750 | TBD |
-| `recovery_rate` | **1.000** | TBD |
-| `recovery_latency` (rounds) | 0.72 | TBD |
+6/18 flip-required cases are **non-diagnostic** (already on `gold_after` pre-CF). On the 12 diagnostic cases, Qwen flips correctly in all.
+
+---
+
+## Belief Trajectory: P(gold) over Evidence Stream
+<!-- _class: plot -->
+
+- Trajectory CF line uses only `flip_required` cases.
+- Yellow band marks where CF rounds occur (`~95th–100th` percentile).
+- Read this plot as end-of-stream separation; use the aligned view below for jump sharpness.
+
+**Qwen2.5-7B**
+![Qwen2.5-7B](./plots/qwen/p_gold_trajectory.png)
+
+---
+
+## CF Revision (Aligned to CF Onset)
+<!-- _class: plot -->
+
+- This alignment makes the post-CF belief shift directly visible.
+
+**Qwen2.5-7B**
+![Qwen2.5-7B](./plots/qwen/cf_revision.png)
+
+---
+
+## Evidence Responsiveness Distribution
+<!-- _class: plot -->
+
+**Qwen2.5-7B**
+![Qwen2.5-7B](./plots/qwen/evidence_responsiveness.png)
 
 ---
 
 ## Next Steps & Conclusion
 
 **Next steps**
-- Scale to Llama-3.3-70B for stronger baseline comparison
-- Failure taxonomy: missed flip vs. spurious flip vs. calibration
-- Stronger prompting baselines (explicit belief-state tracking)
+- Primary: integrate counterfactual and long-context changes during base story generation (not post-processing)
+- Stronger prompting: few-shot, CoT belief tracking, symbolic evidence graph
+- Scale evaluation to larger models and add human baseline
 
 **Conclusion**
-- MuSR-Stress enables **fine-grained diagnosis** of belief reasoning failures
-- Qwen2.5-7B handles required revisions well (`flip_when_required`=0.889, `recovery_rate`=1.0)
-- New failure mode with paragraph chunks: **spurious flips** when no correction is needed (`stability`=0.750)
-- CF accuracy still higher than stream-only (0.864 vs 0.625) — explicit anchoring signal helps
+- P(gold) shifts gradually and responsiveness is low (~0.04), indicating modest per-round updates
+- Stream-only accuracy lags CF accuracy for Qwen (0.625 vs 0.955)
+- Streaming eval exposes reasoning dynamics invisible to static benchmarks
 
 ---
 
 <!-- _class: title -->
 
-# Thank You
+# Thank You!
 
 James Cheng · CS 422

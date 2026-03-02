@@ -143,18 +143,11 @@ def build_dynamic_belief_case(
     rid = 1
     cf_round_start = None
 
-    # v2 behavior: insert the two CF rounds at the narrative midpoint
-    # so CF onset is n_narrative_paragraphs // 2 + 1.
-    cf_insert_idx = (len(paragraphs) // 2) if has_counterfactual else None
-    for idx, para in enumerate(paragraphs):
-        if has_counterfactual and cf_round_start is None and idx == cf_insert_idx:
-            rounds.extend(build_counterfactual_rounds(choices[base_answer_idx], choices[cf_answer_idx], flip_required, rid))
-            cf_round_start = rid
-            rid += 2
+    for para in paragraphs:
         rounds.append({"round_id": rid, "evidence_text": para, "evidence_type": "narrative_paragraph", "is_counterfactual": False})
         rid += 1
 
-    if has_counterfactual and cf_round_start is None:
+    if has_counterfactual:
         rounds.extend(build_counterfactual_rounds(choices[base_answer_idx], choices[cf_answer_idx], flip_required, rid))
         cf_round_start = rid
 
@@ -213,9 +206,9 @@ def build_dynamic_belief(
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Build CS422 v2 benchmark (long_context + dynamic_belief).")
-    p.add_argument("--musr", type=Path, default=Path("../datasets/murder_mystery.json"))
-    p.add_argument("--outdir", type=Path, default=Path("../benchmark_runs/cs422_v2"))
+    p = argparse.ArgumentParser(description="Build CS422 v3 benchmark (long_context + dynamic_belief, CF at end).")
+    p.add_argument("--musr", type=Path, default=Path("datasets/murder_mystery.json"))
+    p.add_argument("--outdir", type=Path, default=Path("benchmark_runs/cs422_v3"))
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--distractors", type=int, default=2)
@@ -239,7 +232,7 @@ def main() -> None:
     }
 
     manifest: Dict[str, Any] = {
-        "name": "cs422_v2",
+        "name": "cs422_v3",
         "seed": args.seed,
         "source_dataset": str(args.musr),
         "limit": args.limit,

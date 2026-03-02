@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 from tqdm import tqdm
 
 from src import cache
@@ -208,51 +209,59 @@ def brier_score(probabilities: Dict[str, float], gold_suspect: str, suspects: Li
     return out
 
 
-def update_consistency(round_preds: List[Dict[str, Any]], cf_info: Optional[Dict[str, Any]] = None) -> float:
-    if len(round_preds) <= 1:
-        return 1.0
+def belief_convergence(round_preds: List[Dict[str, Any]], gold_suspect: str, cf_info: Dict[str, Any]) -> Optional[float]:
+    """Slope of P(gold) over rounds via linear regression, normalized to [−1, 1] range.
 
-    if cf_info is None:
-        cf_info = {}
+    For CF cases, only uses pre-CF rounds (narrative portion) since the gold
+    changes at the CF point. For stream-only cases, uses all rounds.
+    Returns None if fewer than 2 applicable rounds.
+    """
+    cf_round_id = parse_cf_round_id(cf_info) if cf_info.get("has_counterfactual") else None
+    pre_cf_gold = cf_info.get("gold_before_text") or gold_suspect
 
-    tops = [r["top_suspect"] for r in round_preds]
-    cf_round_id = parse_cf_round_id(cf_info)
-    gold_after = cf_info.get("gold_after_text")
-    can_exempt_required_flip = bool(cf_info.get("has_counterfactual")) and bool(cf_info.get("flip_required")) and cf_round_id is not None and bool(gold_after)
+    points: List[Tuple[int, float]] = []
+    for r in round_preds:
+        rid = int(r["round_id"])
+        if cf_round_id is not None and rid >= cf_round_id:
+            break
+        active_gold = pre_cf_gold if cf_info.get("has_counterfactual") else gold_suspect
+        p_gold = float(r["probabilities"].get(active_gold, 0.0))
+        points.append((rid, p_gold))
 
-    penalized_flips = 0
-    required_flip_exempted = False
-    for i in range(1, len(tops)):
-        if tops[i] == tops[i - 1]:
-            continue
-        round_id = int(round_preds[i]["round_id"])
-        is_required_revision = (
-            can_exempt_required_flip
-            and not required_flip_exempted
-            and round_id >= cf_round_id
-            and tops[i] == gold_after
-        )
-        if is_required_revision:
-            required_flip_exempted = True
-            continue
-        penalized_flips += 1
+    if len(points) < 2:
+        return None
 
-    flip_penalty = penalized_flips / (len(tops) - 1)
+    x = np.array([p[0] for p in points], dtype=float)
+    y = np.array([p[1] for p in points], dtype=float)
+    # Normalize x to [0, 1] so slope is comparable across different round counts
+    x_norm = (x - x[0]) / (x[-1] - x[0])
+    slope = float(np.polyfit(x_norm, y, 1)[0])
+    return slope
 
-    final_top = tops[-1]
-    traj_rounds = round_preds
-    if can_exempt_required_flip:
-        traj_rounds = [r for r in round_preds if int(r["round_id"]) >= cf_round_id]
 
-    if len(traj_rounds) <= 1:
-        trajectory_penalty = 0.0
-    else:
-        traj = [float(r["probabilities"].get(final_top, 0.0)) for r in traj_rounds]
-        decreases = sum(max(0.0, traj[i - 1] - traj[i]) for i in range(1, len(traj)))
-        trajectory_penalty = decreases / (len(traj) - 1)
+def evidence_responsiveness(round_preds: List[Dict[str, Any]], suspects: List[str], cf_info: Optional[Dict[str, Any]] = None) -> Optional[float]:
+    """Mean total variation distance between consecutive round distributions.
 
-    score = 1.0 - 0.5 * (flip_penalty + trajectory_penalty)
-    return max(0.0, min(1.0, score))
+    TV = 0.5 * sum(|p_i - q_i|). A value near 0 means the model ignores new
+    evidence; higher values mean the distribution shifts each round.
+    Only considers narrative rounds (excludes CF rounds) so the metric is
+    comparable across stream-only and counterfactual cases.
+    Returns None if fewer than 2 applicable rounds.
+    """
+    cf_round_id = parse_cf_round_id(cf_info) if cf_info and cf_info.get("has_counterfactual") else None
+    narrative = [r for r in round_preds if cf_round_id is None or int(r["round_id"]) < cf_round_id]
+
+    if len(narrative) < 2:
+        return None
+
+    tvs: List[float] = []
+    for i in range(1, len(narrative)):
+        prev = narrative[i - 1]["probabilities"]
+        curr = narrative[i]["probabilities"]
+        tv = 0.5 * sum(abs(float(curr.get(s, 0.0)) - float(prev.get(s, 0.0))) for s in suspects)
+        tvs.append(tv)
+
+    return float(np.mean(tvs))
 
 
 def flip_when_required(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any]) -> Optional[float]:
@@ -278,6 +287,61 @@ def flip_when_required(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any
     return float(post_final_top == gold_after and (pre_top != post_final_top or pre_top == gold_after))
 
 
+def flip_diagnostic(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any]) -> Optional[float]:
+    """flip_when_required restricted to diagnostic cases: those where the model
+    was correctly on gold_before pre-CF, so the flip genuinely tests revision.
+
+    Returns None if the case isn't flip_required or if the model was already
+    (incorrectly) on gold_after pre-CF — those cases are non-diagnostic because
+    the model failed to track pre-CF evidence, and its error happened to align
+    with the post-CF gold.
+    """
+    if not cf_info["has_counterfactual"] or not cf_info["flip_required"]:
+        return None
+
+    cf_round_id = parse_cf_round_id(cf_info)
+    if cf_round_id is None:
+        return None
+
+    pre = [r for r in round_preds if r["round_id"] < cf_round_id]
+    post = [r for r in round_preds if r["round_id"] >= cf_round_id]
+    if not pre or not post:
+        return None
+
+    pre_top = pre[-1]["top_suspect"]
+    gold_after = cf_info.get("gold_after_text")
+    if not gold_after:
+        return None
+
+    # Skip non-diagnostic cases: model was already on gold_after before CF
+    if pre_top == gold_after:
+        return None
+
+    post_final_top = post[-1]["top_suspect"]
+    return float(post_final_top == gold_after)
+
+
+def pre_cf_on_gold_after(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any]) -> Optional[bool]:
+    """Whether the model was already predicting gold_after before seeing
+    the counterfactual block. Only defined for flip_required cases."""
+    if not cf_info["has_counterfactual"] or not cf_info["flip_required"]:
+        return None
+
+    cf_round_id = parse_cf_round_id(cf_info)
+    if cf_round_id is None:
+        return None
+
+    pre = [r for r in round_preds if r["round_id"] < cf_round_id]
+    if not pre:
+        return None
+
+    gold_after = cf_info.get("gold_after_text")
+    if not gold_after:
+        return None
+
+    return pre[-1]["top_suspect"] == gold_after
+
+
 def stability_when_not_required(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any]) -> Optional[float]:
     if not cf_info["has_counterfactual"] or cf_info["flip_required"]:
         return None
@@ -296,21 +360,45 @@ def stability_when_not_required(round_preds: List[Dict[str, Any]], cf_info: Dict
     return float(pre_top == post_final_top)
 
 
-def recovery_latency(round_preds: List[Dict[str, Any]], cf_info: Dict[str, Any]) -> Optional[float]:
-    if not cf_info["has_counterfactual"] or not cf_info["flip_required"]:
-        return None
+def evaluate_case_no_stream(model: TogetherModel, case: Dict[str, Any], verbose: bool = False) -> Dict[str, Any]:
+    """Non-streamed baseline: feed all evidence at once, get a single prediction."""
+    case_id = case_id_of(case)
+    gold_suspect = gold_suspect_of(case)
+    cf_info = counterfactual_info(case)
 
-    cf_round_id = parse_cf_round_id(cf_info)
-    gold_after = cf_info["gold_after_text"]
-    if not gold_after:
-        return None
-    if cf_round_id is None:
-        return None
+    all_evidence = [rnd["evidence_text"] for rnd in case["rounds"]]
+    prompt = build_prompt(case, all_evidence)
+    raw = model.inference(prompt)
+    output = extract_text_from_response(raw)
+    belief = parse_model_belief(output, case["suspects"], case_id=case_id, round_id=-1)
 
-    for r in round_preds:
-        if r["round_id"] >= cf_round_id and r["top_suspect"] == gold_after:
-            return float(r["round_id"] - cf_round_id)
-    return None
+    final_pred = belief["top_suspect"]
+    final_correct = int(final_pred == gold_suspect)
+    bf = brier_score(belief["probabilities"], gold_suspect, case["suspects"])
+
+    if verbose:
+        probs_str = ", ".join(f"{k}={v:.3f}" for k, v in belief["probabilities"].items())
+        print(f"[{case_id} no-stream] top={final_pred} | probs: {probs_str}")
+
+    return {
+        "case_id": case_id,
+        "gold_suspect": gold_suspect,
+        "final_top_suspect": final_pred,
+        "final_correct": final_correct,
+        "counterfactual": cf_info,
+        "metrics": {
+            "final_accuracy": final_correct,
+            "brier_final": bf,
+            "flip_when_required": None,
+            "flip_diagnostic": None,
+            "pre_cf_on_gold_after": None,
+            "stability_when_not_required": None,
+            "belief_convergence": None,
+            "evidence_responsiveness": None,
+        },
+        "round_predictions": [belief],
+        "round_traces": [{"round_id": -1, "prompt": prompt, "raw_output": output, "parsed": belief}],
+    }
 
 
 def evaluate_case(model: TogetherModel, case: Dict[str, Any], verbose: bool = False) -> Dict[str, Any]:
@@ -354,11 +442,6 @@ def evaluate_case(model: TogetherModel, case: Dict[str, Any], verbose: bool = Fa
         )
         round_briers.append(brier_score(r["probabilities"], round_gold, case["suspects"]))
 
-    lat = recovery_latency(round_preds, cf_info)
-    recovered = None
-    if cf_info.get("has_counterfactual") and cf_info.get("flip_required"):
-        recovered = float(lat is not None)
-
     return {
         "case_id": case_id,
         "gold_suspect": gold_suspect,
@@ -367,13 +450,13 @@ def evaluate_case(model: TogetherModel, case: Dict[str, Any], verbose: bool = Fa
         "counterfactual": cf_info,
         "metrics": {
             "final_accuracy": final_correct,
-            "update_consistency": update_consistency(round_preds, cf_info=cf_info),
             "brier_final": round_briers[-1] if round_briers else None,
-            "brier_mean": (sum(round_briers) / len(round_briers)) if round_briers else None,
             "flip_when_required": flip_when_required(round_preds, cf_info),
+            "flip_diagnostic": flip_diagnostic(round_preds, cf_info),
+            "pre_cf_on_gold_after": pre_cf_on_gold_after(round_preds, cf_info),
             "stability_when_not_required": stability_when_not_required(round_preds, cf_info),
-            "recovery_latency": lat,
-            "recovered_after_counterfactual": recovered,
+            "belief_convergence": belief_convergence(round_preds, gold_suspect, cf_info),
+            "evidence_responsiveness": evidence_responsiveness(round_preds, case["suspects"], cf_info),
         },
         "round_predictions": round_preds,
         "round_traces": traces,
@@ -386,12 +469,15 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
             "n_cases": 0,
             "parse_failure_cases": 0,
             "final_accuracy": None,
-            "update_consistency": None,
             "brier_final": None,
-            "brier_mean": None,
             "flip_when_required": None,
+            "flip_diagnostic": None,
+            "flip_diagnostic_n": 0,
+            "flip_nondiagnostic_n": 0,
+            "flip_required_n": 0,
             "stability_when_not_required": None,
-            "recovery_latency": None,
+            "belief_convergence": None,
+            "evidence_responsiveness": None,
             "counterfactual_cases": 0,
             "stream_only_cases": 0,
         }
@@ -400,18 +486,22 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     cf_results = [r for r in results if r.get("counterfactual", {}).get("has_counterfactual")]
     stream_only_results = [r for r in results if not r.get("counterfactual", {}).get("has_counterfactual")]
     fwr = [r["metrics"]["flip_when_required"] for r in results if r["metrics"]["flip_when_required"] is not None]
+    fdiag = [r["metrics"]["flip_diagnostic"] for r in results if r["metrics"]["flip_diagnostic"] is not None]
+    nondiagnostic_flip_cases = sum(
+        1 for r in results
+        if r["metrics"].get("pre_cf_on_gold_after") is True
+    )
+    total_flip_required = sum(
+        1 for r in results
+        if r["metrics"].get("flip_when_required") is not None
+    )
     swnr = [
         r["metrics"]["stability_when_not_required"]
         for r in results
         if r["metrics"]["stability_when_not_required"] is not None
     ]
-    lat = [r["metrics"]["recovery_latency"] for r in results if r["metrics"]["recovery_latency"] is not None]
-    recovered = [
-        r["metrics"]["recovered_after_counterfactual"]
-        for r in results
-        if r["metrics"].get("recovered_after_counterfactual") is not None
-    ]
-
+    bc = [r["metrics"]["belief_convergence"] for r in results if r["metrics"]["belief_convergence"] is not None]
+    er = [r["metrics"]["evidence_responsiveness"] for r in results if r["metrics"]["evidence_responsiveness"] is not None]
     parse_failure_cases = sum(
         1 for r in results
         if any(rp.get("parse_warning") for rp in r.get("round_predictions", []))
@@ -421,15 +511,16 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
         "n_cases": n,
         "parse_failure_cases": parse_failure_cases,
         "final_accuracy": sum(r["metrics"]["final_accuracy"] for r in results) / n,
-        "update_consistency": sum(r["metrics"]["update_consistency"] for r in results) / n,
         "brier_final": sum(r["metrics"]["brier_final"] for r in results if r["metrics"]["brier_final"] is not None)
         / max(1, sum(1 for r in results if r["metrics"]["brier_final"] is not None)),
-        "brier_mean": sum(r["metrics"]["brier_mean"] for r in results if r["metrics"]["brier_mean"] is not None)
-        / max(1, sum(1 for r in results if r["metrics"]["brier_mean"] is not None)),
         "flip_when_required": (sum(fwr) / len(fwr)) if fwr else None,
+        "flip_diagnostic": (sum(fdiag) / len(fdiag)) if fdiag else None,
+        "flip_diagnostic_n": len(fdiag),
+        "flip_nondiagnostic_n": nondiagnostic_flip_cases,
+        "flip_required_n": total_flip_required,
         "stability_when_not_required": (sum(swnr) / len(swnr)) if swnr else None,
-        "recovery_rate": (sum(recovered) / len(recovered)) if recovered else None,
-        "recovery_latency": (sum(lat) / len(lat)) if lat else None,
+        "belief_convergence": (sum(bc) / len(bc)) if bc else None,
+        "evidence_responsiveness": (sum(er) / len(er)) if er else None,
         "counterfactual_cases": len(cf_results),
         "stream_only_cases": len(stream_only_results),
         "subsets": {
@@ -455,13 +546,14 @@ def summarize(results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run MuSR-Stream evaluation over streamed murder mystery evidence.")
-    parser.add_argument("--input", type=Path, default=Path("benchmark_runs/cs422_v2/dynamic_belief/test.jsonl"))
+    parser.add_argument("--input", type=Path, default=Path("benchmark_runs/cs422_v3/dynamic_belief/test.jsonl"))
     parser.add_argument("--output", type=Path, default=Path("outputs/eval_out.json"))
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-7B-Instruct-Turbo")
     parser.add_argument("--limit", type=int, default=1)
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max-tokens", type=int, default=1024)
     parser.add_argument("--verbose", action="store_true", help="Print per-round parsed belief updates.")
+    parser.add_argument("--no-stream", action="store_true", help="Non-streamed baseline: feed all evidence at once.")
     return parser.parse_args()
 
 
@@ -481,10 +573,11 @@ def main() -> None:
     if args.limit is not None:
         data = data[: args.limit]
 
+    eval_fn = evaluate_case_no_stream if args.no_stream else evaluate_case
     results: List[Dict[str, Any]] = []
     cases_iter = tqdm(data, desc="cases")
     for case in cases_iter:
-        case_result = evaluate_case(model, case, verbose=args.verbose)
+        case_result = eval_fn(model, case, verbose=args.verbose)
         results.append(case_result)
         cases_iter.set_postfix(
             {
@@ -503,6 +596,7 @@ def main() -> None:
             "limit": args.limit,
             "temperature": args.temperature,
             "max_tokens": args.max_tokens,
+            "no_stream": args.no_stream,
         },
         "summary": summary,
         "cases": results,

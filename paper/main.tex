@@ -35,7 +35,7 @@ Stanford University \\
 \maketitle
 
 \begin{abstract}
-We present \textbf{MuSR-Stress}, a benchmark for evaluating reasoning systems along two axes: long-context reasoning and dynamic belief consistency under streaming evidence and counterfactual correction. The benchmark includes two tracks (\texttt{long\_context} and \texttt{dynamic\_belief}) with standardized train/dev/test splits. We report metrics beyond final-answer accuracy, including update consistency, calibration (Brier score), required belief revision, recovery rate, and recovery latency. Baseline results show high trajectory consistency but weaker revision success, suggesting that counterfactual corrections remain challenging for current models.
+We present \textbf{MuSR-Stress}, a benchmark for evaluating reasoning systems along two axes: long-context reasoning and dynamic belief consistency under streaming evidence and counterfactual correction. The benchmark includes two tracks (\texttt{long\_context} and \texttt{dynamic\_belief}) with standardized train/dev/test splits. We evaluate models on streamed evidence and report trajectory-aware metrics including belief trajectory, evidence responsiveness, calibration, and counterfactual revision. Baseline results on Qwen2.5-7B and Llama-3.3-70B show flat P(gold) trajectories and low evidence responsiveness ($\sim$0.05), revealing that both models barely update beliefs across rounds despite achieving 0.76--0.84 final accuracy. We introduce \emph{flip\_diagnostic}, a filtered revision metric that excludes non-diagnostic cases where the model failed to track pre-counterfactual evidence, providing a more honest measure of belief revision ability. Streaming evaluation exposes reasoning dynamics invisible to static QA benchmarks.
 \end{abstract}
 
 \section{Motivation}
@@ -92,7 +92,7 @@ The dynamic track is generated with configurable round limits and correction rat
   \item \texttt{evidence\_source}=narrative\_paragraphs
 \end{itemize}
 
-Evidence rounds are paragraphs split on double newlines from the case's story prose. Paragraphs are the natural authoring unit --- each typically introduces a new scene beat, dialogue exchange, or clue --- and the full narrative is revealed with no round cap (13--41 paragraphs per case, median 24). The counterfactual block is injected at the midpoint paragraph.
+Evidence rounds are paragraphs split on double newlines from the case's story prose. Paragraphs are the natural authoring unit --- each typically introduces a new scene beat, dialogue exchange, or clue --- and the full narrative is revealed with no round cap (13--41 paragraphs per case, median 24). The counterfactual block is appended after the final narrative paragraph, cleanly testing whether the model can override accumulated evidence when authoritative corrections arrive.
 
 This produces both:
 \begin{itemize}
@@ -102,11 +102,11 @@ This produces both:
 
 \subsection{Example: Counterfactual Case}
 
-Table~\ref{tab:example_case} shows a representative \texttt{flip\_required} counterfactual instance (\texttt{dynamic\_belief\_187\_q0}) from the test split. Suspects are Dale and Letti; the victim is Josephine. Early narrative rounds describe Dale's confrontation with Josephine, his suspicious multiple driver's licenses, his frequent presence at her café, and an invitation to her house on the day of the murder --- all pointing toward Dale. At round 21 the counterfactual block withdraws the witness timeline against Letti and introduces new physical evidence (phone location, weapon purchase, threatening messages) implicating Dale. Post-correction narrative continues, requiring the model to hold the revised belief through the remaining rounds.
+Table~\ref{tab:example_case} shows a representative \texttt{flip\_required} counterfactual instance (\texttt{dynamic\_belief\_187\_q0}) from the test split. Suspects are Dale and Letti; the victim is Josephine. Narrative rounds describe Dale's confrontation with Josephine, his suspicious multiple driver's licenses, his frequent presence at her café, and an invitation to her house on the day of the murder. After all narrative evidence, the counterfactual block withdraws the witness timeline against Letti and introduces new physical evidence (phone location, weapon purchase, threatening messages) implicating Dale. The model must override its accumulated belief to revise correctly.
 
 \begin{table}[h]
 \centering
-\caption{Example counterfactual case (\texttt{dynamic\_belief\_187\_q0}). Gold switches from Letti $\to$ Dale at round 21.}
+\caption{Example counterfactual case (\texttt{dynamic\_belief\_187\_q0}). Gold switches from Letti $\to$ Dale after final narrative round.}
 \label{tab:example_case}
 \small
 \begin{tabular}{clp{9cm}}
@@ -118,11 +118,10 @@ Round & Type & Evidence \\
 6  & narrative & Reports include Josephine's new lover, the confrontation with Dale, suspicious multiple driver's licenses found at Dale's house, and Dale's frequent presence at the victim's café. \\
 8  & narrative & Josephine herself handed Dale an invitation to her house on the day of the murder, when no one else was home. \\
 19 & narrative & Winston noticed Dale hastily shove a few driver's licenses into his wallet. \\
+\ldots & narrative & Story continues through remaining narrative paragraphs. \\
 \midrule
-\textbf{21} & \textbf{counterfactual} & \textbf{Correction: the key witness timeline against Letti had an incorrect timestamp and is now withdrawn.} \\
-\textbf{22} & \textbf{counterfactual} & \textbf{Follow-up records place Dale's phone near the scene during the murder window, show a matching weapon purchase, and include messages documenting escalating conflict with Josephine.} \\
-\midrule
-23+ & narrative & Story continues --- model must maintain revised belief (Dale) through rounds 23--40. \\
+\textbf{N+1} & \textbf{counterfactual} & \textbf{Correction: the key witness timeline against Letti had an incorrect timestamp and is now withdrawn.} \\
+\textbf{N+2} & \textbf{counterfactual} & \textbf{Follow-up records place Dale's phone near the scene during the murder window, show a matching weapon purchase, and include messages documenting escalating conflict with Josephine.} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -181,20 +180,7 @@ Let \(T = (r_1, r_2, \ldots, r_n)\) be the sequence of rounds for a case, \(\hat
 \[
 \text{BS}_t = \sum_{s \in \mathcal{S}} \left(p_t(s) - \mathbf{1}[s = g_t]\right)^2
 \]
-\textbf{brier\_final} $= \text{BS}_n$; \textbf{brier\_mean} $= \frac{1}{n}\sum_{t=1}^n \text{BS}_t$.
-
-\paragraph{Update consistency.}
-Let \(\mathcal{F}\) be the set of round indices where \(\hat{s}_t \neq \hat{s}_{t-1}\). In flip-required counterfactual cases, the first transition in \(\mathcal{F}\) with \(t \geq r_{cf}\) and \(\hat{s}_t = s^*_{\text{after}}\) is exempted (it is a correct revision). The flip penalty is:
-\[
-\text{flip\_penalty} = \frac{|\mathcal{F}_{\text{penalized}}|}{n - 1}
-\]
-For the trajectory penalty, let \(\tau\) be the subsequence of rounds used (all rounds for stream-only; post-\(r_{cf}\) rounds for counterfactual cases):
-\[
-\text{traj\_penalty} = \frac{\sum_{t \in \tau,\, t>1} \max(0,\; p_{t-1}(\hat{s}_n) - p_t(\hat{s}_n))}{|\tau| - 1}
-\]
-\[
-\text{update\_consistency} = \max\!\left(0,\;\min\!\left(1,\;1 - \tfrac{1}{2}(\text{flip\_penalty} + \text{traj\_penalty})\right)\right)
-\]
+\textbf{brier\_final} $= \text{BS}_n$.
 
 \paragraph{Flip when required.}
 Defined only for flip-required counterfactual cases. Let pre- and post-correction predictions be \(\hat{s}_{\text{pre}} = \hat{s}_{r_{cf}-1}\) and \(\hat{s}_{\text{post}} = \hat{s}_n\):
@@ -202,49 +188,61 @@ Defined only for flip-required counterfactual cases. Let pre- and post-correctio
 \text{flip\_when\_required} = \mathbf{1}\!\left[\hat{s}_{\text{post}} = s^*_{\text{after}}\right]
 \]
 
+\paragraph{Flip diagnostic.}
+Restricts \texttt{flip\_when\_required} to \emph{diagnostic} cases: those where the model was correctly predicting \(s^*_{\text{before}}\) prior to the counterfactual block. Cases where the model was already (incorrectly) on \(s^*_{\text{after}}\) pre-CF are \emph{non-diagnostic} --- the model failed to track pre-CF evidence, and its error happened to align with the post-CF gold, so the case does not test revision ability.
+
 \paragraph{Stability when not required.}
 Defined only for counterfactual cases where \texttt{flip\_required=False}:
 \[
 \text{stability\_when\_not\_required} = \mathbf{1}\!\left[\hat{s}_{\text{pre}} = \hat{s}_{\text{post}}\right]
 \]
 
-\paragraph{Recovery rate and latency.}
-Defined only for flip-required counterfactual cases. Let \(t^* = \min\{t \geq r_{cf} : \hat{s}_t = s^*_{\text{after}}\}\) (undefined if never reached):
+\paragraph{Belief convergence.}
+Measures how quickly the model builds confidence in the correct suspect over narrative rounds (excluding CF rounds). We fit a linear regression of \(p_t(g_t)\) over rounds normalized to \([0,1]\) and report the slope. Positive values indicate increasing confidence; near-zero indicates premature commitment or flat trajectories.
+
+\paragraph{Evidence responsiveness.}
+Mean total variation distance between consecutive narrative-round distributions:
 \[
-\text{recovery\_rate} = \mathbf{1}[t^* \text{ exists}]
-\qquad
-\text{recovery\_latency} = t^* - r_{cf}
+\text{evidence\_responsiveness} = \frac{1}{n-1}\sum_{t=2}^{n} \frac{1}{2}\sum_{s \in \mathcal{S}} |p_t(s) - p_{t-1}(s)|
 \]
-Recovery latency is reported only over recovered cases (where \(t^*\) exists), so a value of 0 indicates immediate correction at the counterfactual round.
+A value near zero means the model ignores new evidence; higher values indicate the distribution shifts as evidence accumulates. Only narrative rounds are included so the metric is comparable across stream-only and counterfactual cases.
+
+Since the counterfactual block is appended as the final rounds, recovery latency is not applicable --- the model either flips correctly at the end or does not.
 
 \subsection{Preliminary Baseline Results}
-We evaluate instruct models at temperature 0 on the \texttt{dynamic\_belief} test split (\(n=38\)).
+We evaluate two models at temperature 0 on the \texttt{dynamic\_belief} test split (\(n=38\)) with streamed evidence (model re-prompted at each round): Qwen2.5-7B-Instruct and Llama-3.3-70B-Instruct.
 
 \begin{table}[h]
 \centering
-\caption{Dynamic-belief test results (\(n=38\), paragraph-based rounds).}
+\caption{Dynamic-belief test results (\(n=38\), CF at end).}
 \begin{tabular}{lrr}
 \toprule
-Metric & Qwen2.5-7B-Instruct & Llama-3.3-70B-Instruct \\
+Metric & Qwen2.5-7B & Llama-3.3-70B \\
 \midrule
-Final accuracy & 0.763 & TBD \\
-\quad counterfactual subset (n=22) & 0.864 & TBD \\
-\quad stream-only subset (n=16) & 0.625 & TBD \\
-Update consistency & 0.972 & TBD \\
-Brier final & 0.396 & TBD \\
-Brier mean & 0.461 & TBD \\
-Flip when required & \textbf{0.889} & TBD \\
-Stability when not required & 0.750 & TBD \\
-Recovery rate & \textbf{1.000} & TBD \\
-Recovery latency (rounds) & 0.72 & TBD \\
+Final accuracy & 0.763 & 0.842 \\
+\quad counterfactual (n=22) & 0.864 & 0.909 \\
+\quad stream-only (n=16) & 0.625 & 0.750 \\
+Brier final & 0.396 & 0.374 \\
+Flip when required (n=18) & 0.889 & 0.889 \\
+\quad diagnostic only (n=10) & 1.000 & 0.900 \\
+\quad non-diagnostic (n=8) & --- & --- \\
+Stability when not required & 0.750 & 1.000 \\
+Evidence responsiveness & 0.049 & 0.054 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+\paragraph{Diagnostic vs.\ non-diagnostic flip cases.}
+Of 18 \texttt{flip\_required} cases, 8 are \emph{non-diagnostic}: the model was already predicting \(s^*_{\text{after}}\) before the counterfactual block, meaning it had failed to track the pre-CF evidence (which supports \(s^*_{\text{before}}\)). These cases do not test belief revision because the model's pre-CF error happens to align with the post-CF gold. We report \texttt{flip\_diagnostic} on the remaining 10 cases where the model was correctly on \(s^*_{\text{before}}\) pre-CF, giving a more honest measure of revision ability.
+
 \textbf{Key observations.}
-Qwen2.5-7B-Instruct still handles counterfactual revision well: \texttt{flip\_when\_required}=0.889 and \texttt{recovery\_rate}=1.0, though \texttt{recovery\_latency} increased to 0.72 rounds compared to the sentence-based format, suggesting the model takes slightly longer to commit to the revised gold when evidence arrives in paragraph chunks.
-\texttt{stability\_when\_not\_required} dropped to 0.750, indicating the model sometimes flips unnecessarily on a paragraph-sized evidence burst even when no correction is present --- a new failure mode surfaced by the coarser granularity.
-The gap between counterfactual accuracy (0.864) and stream-only accuracy (0.625) persists but has narrowed relative to the sentence-based run, likely because paragraph-sized chunks carry more information per round and help the model reason from accumulated narrative evidence without an explicit correction anchor.
+Both models show very low evidence responsiveness ($\sim$0.05), confirming near-constant probability distributions across narrative rounds --- the models barely update beliefs as new evidence arrives.
+
+On overall \texttt{flip\_when\_required}, both models score identically (0.889). However, restricting to diagnostic cases reveals a reversal: Qwen flips correctly in all 10 genuine cases (1.000) while Llama misses one (0.900), despite Llama's higher overall accuracy. This suggests the smaller model may be more responsive to explicit correction signals.
+
+Llama shows perfect stability (1.000 vs.\ 0.750), meaning it never spuriously revises when the CF block does not require a flip.
+
+The gap between counterfactual and stream-only accuracy persists across both models, suggesting the explicit \texttt{[CORRECTION]} marker acts as a strong reasoning anchor, while both models struggle to accumulate evidence from narrative alone.
 
 \subsection{Dataset Composition}
 The full \texttt{dynamic\_belief} track (250 cases, 70/15/15 train/dev/test split, seed=7) breaks down as follows from the generation manifest:
@@ -268,13 +266,12 @@ Total & 250 & 170 CF / 80 stream-only \\
 \end{table}
 
 \section{Next Steps}
-Current limitations include single-domain emphasis and single-seed headline reporting. Next steps are:
+Current limitations include zero-shot-only prompting, a single model size, and an underdeveloped long-context track. Next steps are:
 \begin{itemize}
-  \item multi-seed reporting with mean/variance,
-  \item failure taxonomy (spurious flip vs missed required flip),
-  \item evaluation of additional models on both tracks (\texttt{long\_context}, \texttt{dynamic\_belief}),
-  \item a combined track stressing both long-context attention and dynamic belief revision simultaneously,
-  \item extension of dynamic-belief generation to other domains beyond murder mystery.
+  \item stronger prompting baselines: few-shot with train examples, chain-of-thought with explicit belief-state tracking, and symbolic evidence graph maintenance,
+  \item long-context track: extend base stories with additional chapters for naturally longer narratives rather than distractor injection,
+  \item scale evaluation across model sizes (7B to 70B) and collect a human baseline,
+  \item ablations over counterfactual insertion point, number of rounds, and number of suspects.
 \end{itemize}
 
 \appendix
