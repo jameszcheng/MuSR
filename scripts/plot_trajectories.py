@@ -300,6 +300,207 @@ def plot_cf_revision(cases: List[Dict[str, Any]], outdir: Path, window_before: i
     print(f"Saved {outdir / 'cf_revision.png'}")
 
 
+# ── Plot 5: Stream-only belief dynamics — lock-in vs switching ────────────────
+
+
+def _classify_stream_behavior(case: Dict[str, Any]) -> str:
+    """Classify a stream-only case as locked_in / switched / oscillated."""
+    preds = case["round_predictions"]
+    first_top = preds[0]["top_suspect"]
+    final_top = preds[-1]["top_suspect"]
+    switches = sum(
+        1 for i in range(1, len(preds))
+        if preds[i]["top_suspect"] != preds[i - 1]["top_suspect"]
+    )
+    if switches == 0:
+        return "locked_in"
+    elif first_top == final_top:
+        return "oscillated"
+    else:
+        return "switched"
+
+
+def plot_stream_only_dynamics(cases: List[Dict[str, Any]], outdir: Path) -> None:
+    """Two-panel figure: (left) stacked bar chart of locked-in / switched /
+    oscillated for successes and failures; (right) individual P(gold)
+    trajectories colored by category."""
+    stream_only = [
+        c for c in cases if not c["counterfactual"].get("has_counterfactual")
+    ]
+    if not stream_only:
+        return
+
+    # 3 behaviors x 2 outcomes = 6 categories
+    behavior_labels = ["Locked in", "Switched", "Oscillated"]
+    behavior_colors = {
+        "locked_in": "#9E9E9E",
+        "switched": "#2196F3",
+        "oscillated": "#FF9800",
+    }
+    outcome_styles = {
+        "correct": {"suffix": "(correct)", "alpha": 0.8, "linestyle": "-"},
+        "incorrect": {"suffix": "(incorrect)", "alpha": 0.6, "linestyle": "--"},
+    }
+
+    # Categorize
+    categories: Dict[str, List[Dict[str, Any]]] = {}
+    for c in stream_only:
+        gold = c["gold_suspect"]
+        preds = c["round_predictions"]
+        final_top = preds[-1]["top_suspect"]
+        correct = c.get("final_correct", final_top == gold)
+        behavior = _classify_stream_behavior(c)
+        outcome = "correct" if correct else "incorrect"
+        key = f"{behavior}_{outcome}"
+        categories.setdefault(key, []).append(c)
+
+    # ── Left panel: grouped stacked bar chart ──
+    fig, (ax_bar, ax_traj) = plt.subplots(
+        1, 2, figsize=(14, 5.5), gridspec_kw={"width_ratios": [1, 1.6]}
+    )
+
+    behaviors = ["locked_in", "switched", "oscillated"]
+    bar_x = [0, 1]
+    bar_width = 0.5
+
+    for x_pos, outcome, x_label in [
+        (0, "correct", "Correct"),
+        (1, "incorrect", "Incorrect"),
+    ]:
+        bottom = 0
+        total = sum(len(categories.get(f"{b}_{outcome}", [])) for b in behaviors)
+        for beh, label in zip(behaviors, behavior_labels):
+            key = f"{beh}_{outcome}"
+            count = len(categories.get(key, []))
+            if count == 0:
+                continue
+            bar = ax_bar.bar(
+                x_pos, count, bottom=bottom, width=bar_width,
+                color=behavior_colors[beh],
+                label=label if x_pos == 0 else None,
+            )
+            ax_bar.text(
+                x_pos, bottom + count / 2, str(count),
+                ha="center", va="center", fontsize=14, fontweight="bold",
+                color="white" if count >= 1 else "black",
+            )
+            bottom += count
+        ax_bar.text(x_pos, -0.6, f"{x_label} (n={total})", ha="center", fontsize=11)
+
+    ax_bar.set_xticks([])
+    ax_bar.set_ylabel("Number of cases", fontsize=12)
+    ax_bar.set_title("Belief Behavior Breakdown", fontsize=13)
+    ax_bar.legend(fontsize=10, loc="upper right")
+    ax_bar.set_ylim(-1.2, 12)
+    ax_bar.grid(True, axis="y", alpha=0.3)
+
+    # ── Right panel: individual P(gold) trajectories ──
+    legend_entries = set()
+    for beh in behaviors:
+        color = behavior_colors[beh]
+        for outcome in ["correct", "incorrect"]:
+            key = f"{beh}_{outcome}"
+            style = outcome_styles[outcome]
+            for c in categories.get(key, []):
+                gold = c["gold_suspect"]
+                preds = c["round_predictions"]
+                n = len(preds)
+                if n == 0:
+                    continue
+                pcts = [i / max(1, n - 1) * 100 for i in range(n)]
+                p_gold = [float(r["probabilities"].get(gold, 0.0)) for r in preds]
+                ax_traj.plot(
+                    pcts, p_gold, color=color, alpha=style["alpha"],
+                    linestyle=style["linestyle"], linewidth=1.5,
+                )
+
+    # Legend with dummy lines
+    for beh, label in zip(behaviors, behavior_labels):
+        count_c = len(categories.get(f"{beh}_correct", []))
+        count_i = len(categories.get(f"{beh}_incorrect", []))
+        total = count_c + count_i
+        if total > 0:
+            ax_traj.plot([], [], color=behavior_colors[beh], linewidth=2,
+                         linestyle="-", label=f"{label} ({total})")
+    ax_traj.plot([], [], color="gray", linewidth=1.5, linestyle="-", label="Solid = correct")
+    ax_traj.plot([], [], color="gray", linewidth=1.5, linestyle="--", label="Dashed = incorrect")
+
+    ax_traj.set_xlabel("Round percentile (%)", fontsize=12)
+    ax_traj.set_ylabel("P(gold)", fontsize=12)
+    ax_traj.set_title("Individual P(gold) Trajectories", fontsize=13)
+    ax_traj.set_ylim(-0.05, 1.05)
+    ax_traj.axhline(0.5, color="#ccc", linestyle=":", linewidth=1)
+    ax_traj.legend(fontsize=9, loc="best")
+    ax_traj.grid(True, alpha=0.3)
+
+    fig.suptitle(f"Stream-Only Belief Dynamics (n={len(stream_only)})", fontsize=14, y=1.01)
+    fig.tight_layout()
+    fig.savefig(outdir / "stream_only_dynamics.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {outdir / 'stream_only_dynamics.png'}")
+
+
+# ── Plot 6: Stream-only failures — individual P(gold) trajectories ───────────
+
+
+def plot_stream_only_failures(cases: List[Dict[str, Any]], outdir: Path) -> None:
+    """Individual P(gold) trajectories for stream-only cases that got the wrong
+    final answer, showing the model locking in early and never recovering."""
+    failures = [
+        c for c in cases
+        if not c["counterfactual"].get("has_counterfactual")
+        and not c.get("final_correct")
+    ]
+    if not failures:
+        print("No stream-only failures found — skipping plot.")
+        return
+
+    n = len(failures)
+    fig, axes = plt.subplots(2, 3, figsize=(14, 8), sharey=True)
+    axes = axes.flatten()
+
+    colors = ["#E91E63", "#2196F3", "#FF9800", "#4CAF50", "#9C27B0", "#795548"]
+
+    for i, case in enumerate(failures[:6]):
+        ax = axes[i]
+        gold = case["gold_suspect"]
+        preds = case["round_predictions"]
+        suspects = list(preds[0]["probabilities"].keys())
+
+        rounds = [int(r["round_id"]) for r in preds]
+        for s in suspects:
+            probs = [float(r["probabilities"].get(s, 0.0)) for r in preds]
+            is_gold = s == gold
+            ax.plot(
+                rounds, probs,
+                linewidth=2.5 if is_gold else 1.5,
+                linestyle="-" if is_gold else "--",
+                color="#4CAF50" if is_gold else "#E91E63",
+                label=f"{s} (gold)" if is_gold else s,
+                alpha=1.0 if is_gold else 0.7,
+            )
+
+        ax.set_title(f"{case['case_id'].replace('dynamic_belief_', '').replace('_q0', '')}: gold={gold}", fontsize=10)
+        ax.set_ylim(-0.05, 1.05)
+        ax.axhline(0.5, color="#ccc", linestyle=":", linewidth=1)
+        ax.legend(fontsize=8, loc="best")
+        ax.grid(True, alpha=0.3)
+        if i >= 3:
+            ax.set_xlabel("Round", fontsize=10)
+        if i % 3 == 0:
+            ax.set_ylabel("P(suspect)", fontsize=10)
+
+    # Hide unused subplots
+    for i in range(n, len(axes)):
+        axes[i].set_visible(False)
+
+    fig.suptitle(f"Stream-Only Failures: P(gold) Trajectories (n={n})", fontsize=14, y=1.01)
+    fig.tight_layout()
+    fig.savefig(outdir / "stream_only_failures.png", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved {outdir / 'stream_only_failures.png'}")
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
@@ -321,6 +522,8 @@ def main() -> None:
     plot_p_gold_trajectory(cases, args.outdir)
     plot_responsiveness(cases, args.outdir)
     plot_cf_revision(cases, args.outdir)
+    plot_stream_only_dynamics(cases, args.outdir)
+    plot_stream_only_failures(cases, args.outdir)
 
     if args.no_stream_input:
         plot_stream_vs_no_stream(args.input, args.no_stream_input, args.outdir)

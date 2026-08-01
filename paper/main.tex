@@ -35,7 +35,7 @@ Stanford University \\
 \maketitle
 
 \begin{abstract}
-We present \textbf{MuSR-Stress}, a benchmark for evaluating reasoning systems along two axes: long-context reasoning and dynamic belief consistency under streaming evidence and counterfactual correction. The benchmark includes two tracks (\texttt{long\_context} and \texttt{dynamic\_belief}) with standardized train/dev/test splits. We evaluate models on streamed evidence and report trajectory-aware metrics including belief trajectory, evidence responsiveness, calibration, and counterfactual revision. Baseline results on Qwen2.5-7B and Llama-3.3-70B show flat P(gold) trajectories and low evidence responsiveness ($\sim$0.05), revealing that both models barely update beliefs across rounds despite achieving 0.76--0.84 final accuracy. We introduce \emph{flip\_diagnostic}, a filtered revision metric that excludes non-diagnostic cases where the model failed to track pre-counterfactual evidence, providing a more honest measure of belief revision ability. Streaming evaluation exposes reasoning dynamics invisible to static QA benchmarks.
+We present \textbf{MuSR-Stress}, a benchmark for evaluating reasoning systems along two axes: long-context reasoning and dynamic belief consistency under streaming evidence and counterfactual correction. The benchmark includes two tracks (\texttt{long\_context} and \texttt{dynamic\_belief}) with standardized train/dev/test splits. We evaluate models on streamed evidence and report trajectory-aware metrics including belief trajectory, evidence responsiveness, calibration, and counterfactual revision. On the current \texttt{cs422\_v3} dynamic-belief test split, a Qwen2.5-7B baseline reaches 0.816 final accuracy but shows low evidence responsiveness ($\sim$0.04), indicating modest per-round updates despite strong end-of-stream counterfactual performance. Streaming evaluation exposes reasoning dynamics invisible to static QA benchmarks.
 \end{abstract}
 
 \section{Motivation}
@@ -85,14 +85,14 @@ Each instance contains a question, candidate suspects, gold answer, ordered evid
 \end{figure}
 
 \subsection{Generation Settings}
-The dynamic track is generated with configurable round limits and correction rates. Current v2 settings:
+The dynamic track is generated with configurable correction rates. Current v3 settings:
 \begin{itemize}
   \item \texttt{counterfactual\_rate}=0.7
   \item \texttt{flip\_rate}=0.7
   \item \texttt{evidence\_source}=narrative\_paragraphs
 \end{itemize}
 
-Evidence rounds are paragraphs split on double newlines from the case's story prose. Paragraphs are the natural authoring unit --- each typically introduces a new scene beat, dialogue exchange, or clue --- and the full narrative is revealed with no round cap (13--41 paragraphs per case, median 24). The counterfactual block is appended after the final narrative paragraph, cleanly testing whether the model can override accumulated evidence when authoritative corrections arrive.
+Evidence rounds are paragraphs split on double newlines from the case's story prose. Paragraphs are the natural authoring unit --- each typically introduces a new scene beat, dialogue exchange, or clue --- and the full narrative is revealed with no round cap (13--43 paragraphs per case, median 25). The counterfactual block is appended after the final narrative paragraph, cleanly testing whether the model can override accumulated evidence when authoritative corrections arrive.
 
 This produces both:
 \begin{itemize}
@@ -189,7 +189,7 @@ Defined only for flip-required counterfactual cases. Let pre- and post-correctio
 \]
 
 \paragraph{Flip diagnostic.}
-Restricts \texttt{flip\_when\_required} to \emph{diagnostic} cases: those where the model was correctly predicting \(s^*_{\text{before}}\) prior to the counterfactual block. Cases where the model was already (incorrectly) on \(s^*_{\text{after}}\) pre-CF are \emph{non-diagnostic} --- the model failed to track pre-CF evidence, and its error happened to align with the post-CF gold, so the case does not test revision ability.
+Restricts \texttt{flip\_when\_required} to \emph{diagnostic} cases: those where the model was \emph{not already} predicting \(s^*_{\text{after}}\) prior to the counterfactual block. Cases where the model was already on \(s^*_{\text{after}}\) pre-CF are \emph{non-diagnostic}: they do not test revision because the post-CF target was already selected before the correction block.
 
 \paragraph{Stability when not required.}
 Defined only for counterfactual cases where \texttt{flip\_required=False}:
@@ -203,46 +203,44 @@ Measures how quickly the model builds confidence in the correct suspect over nar
 \paragraph{Evidence responsiveness.}
 Mean total variation distance between consecutive narrative-round distributions:
 \[
-\text{evidence\_responsiveness} = \frac{1}{n-1}\sum_{t=2}^{n} \frac{1}{2}\sum_{s \in \mathcal{S}} |p_t(s) - p_{t-1}(s)|
+\text{evidence\_responsiveness} = \frac{1}{n_{\text{narr}}-1}\sum_{t=2}^{n_{\text{narr}}} \frac{1}{2}\sum_{s \in \mathcal{S}} |p_t(s) - p_{t-1}(s)|
 \]
 A value near zero means the model ignores new evidence; higher values indicate the distribution shifts as evidence accumulates. Only narrative rounds are included so the metric is comparable across stream-only and counterfactual cases.
 
 Since the counterfactual block is appended as the final rounds, recovery latency is not applicable --- the model either flips correctly at the end or does not.
 
 \subsection{Preliminary Baseline Results}
-We evaluate two models at temperature 0 on the \texttt{dynamic\_belief} test split (\(n=38\)) with streamed evidence (model re-prompted at each round): Qwen2.5-7B-Instruct and Llama-3.3-70B-Instruct.
+We evaluate Qwen2.5-7B-Instruct at temperature 0 on the \texttt{cs422\_v3} \texttt{dynamic\_belief} test split (\(n=38\)) with streamed evidence (model re-prompted at each round).
 
 \begin{table}[h]
 \centering
-\caption{Dynamic-belief test results (\(n=38\), CF at end).}
-\begin{tabular}{lrr}
+\caption{Qwen2.5-7B results on \texttt{cs422\_v3} dynamic-belief test (\(n=38\), CF at end).}
+\begin{tabular}{lr}
 \toprule
-Metric & Qwen2.5-7B & Llama-3.3-70B \\
+Metric & Qwen2.5-7B \\
 \midrule
-Final accuracy & 0.763 & 0.842 \\
-\quad counterfactual (n=22) & 0.864 & 0.909 \\
-\quad stream-only (n=16) & 0.625 & 0.750 \\
-Brier final & 0.396 & 0.374 \\
-Flip when required (n=18) & 0.889 & 0.889 \\
-\quad diagnostic only (n=10) & 1.000 & 0.900 \\
-\quad non-diagnostic (n=8) & --- & --- \\
-Stability when not required & 0.750 & 1.000 \\
-Evidence responsiveness & 0.049 & 0.054 \\
+Final accuracy & 0.816 \\
+\quad counterfactual (n=22) & 0.955 \\
+\quad stream-only (n=16) & 0.625 \\
+Brier final & 0.356 \\
+Flip when required (n=18) & 1.000 \\
+\quad diagnostic only (n=12) & 1.000 \\
+\quad non-diagnostic (n=6) & --- \\
+Stability when not required & 0.750 \\
+Evidence responsiveness & 0.041 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \paragraph{Diagnostic vs.\ non-diagnostic flip cases.}
-Of 18 \texttt{flip\_required} cases, 8 are \emph{non-diagnostic}: the model was already predicting \(s^*_{\text{after}}\) before the counterfactual block, meaning it had failed to track the pre-CF evidence (which supports \(s^*_{\text{before}}\)). These cases do not test belief revision because the model's pre-CF error happens to align with the post-CF gold. We report \texttt{flip\_diagnostic} on the remaining 10 cases where the model was correctly on \(s^*_{\text{before}}\) pre-CF, giving a more honest measure of revision ability.
+Of 18 \texttt{flip\_required} cases, 6 are \emph{non-diagnostic}: the model was already predicting \(s^*_{\text{after}}\) before the counterfactual block. These cases do not test revision behavior. We report \texttt{flip\_diagnostic} on the remaining 12 cases, where Qwen flips correctly in all 12 (1.000).
 
 \textbf{Key observations.}
-Both models show very low evidence responsiveness ($\sim$0.05), confirming near-constant probability distributions across narrative rounds --- the models barely update beliefs as new evidence arrives.
+Qwen shows low evidence responsiveness ($\sim$0.04), confirming near-constant probability distributions across narrative rounds and modest round-to-round updates.
 
-On overall \texttt{flip\_when\_required}, both models score identically (0.889). However, restricting to diagnostic cases reveals a reversal: Qwen flips correctly in all 10 genuine cases (1.000) while Llama misses one (0.900), despite Llama's higher overall accuracy. This suggests the smaller model may be more responsive to explicit correction signals.
+Counterfactual accuracy is much higher than stream-only accuracy (0.955 vs.\ 0.625), suggesting the explicit \texttt{[CORRECTION]} marker is a strong anchor while narrative-only accumulation remains challenging.
 
-Llama shows perfect stability (1.000 vs.\ 0.750), meaning it never spuriously revises when the CF block does not require a flip.
-
-The gap between counterfactual and stream-only accuracy persists across both models, suggesting the explicit \texttt{[CORRECTION]} marker acts as a strong reasoning anchor, while both models struggle to accumulate evidence from narrative alone.
+Qwen's \texttt{flip\_when\_required}=1.000 and \texttt{stability\_when\_not\_required}=0.750 indicate strong revision when needed, but occasional unnecessary changes when no revision is required.
 
 \subsection{Dataset Composition}
 The full \texttt{dynamic\_belief} track (250 cases, 70/15/15 train/dev/test split, seed=7) breaks down as follows from the generation manifest:
@@ -268,6 +266,7 @@ Total & 250 & 170 CF / 80 stream-only \\
 \section{Next Steps}
 Current limitations include zero-shot-only prompting, a single model size, and an underdeveloped long-context track. Next steps are:
 \begin{itemize}
+  \item primary: embed counterfactual and long-context stressors directly in base story generation (rather than only post-processing),
   \item stronger prompting baselines: few-shot with train examples, chain-of-thought with explicit belief-state tracking, and symbolic evidence graph maintenance,
   \item long-context track: extend base stories with additional chapters for naturally longer narratives rather than distractor injection,
   \item scale evaluation across model sizes (7B to 70B) and collect a human baseline,
@@ -279,7 +278,7 @@ Current limitations include zero-shot-only prompting, a single model size, and a
 \section{Example Prompt at Counterfactual Round}
 \label{app:prompt_example}
 
-The following is the literal prompt sent to the model at round 20 of case \texttt{dynamic\_belief\_187\_q0} --- immediately after the two-sentence counterfactual block (rounds 19--20) has been appended to 18 prior narrative paragraphs. The model must now revise its belief from Letti to Dale.
+The following is an excerpt of the prompt tail at round 39 of case \texttt{dynamic\_belief\_187\_q0} in \texttt{cs422\_v3}. At this point, 37 narrative rounds have been observed and the two counterfactual rounds (38--39) are appended; the model should revise from Letti to Dale.
 
 \begin{figure}[h]
 \centering
@@ -294,63 +293,21 @@ Suspects:
 - Letti
 
 Evidence so far:
-1. An explosion rocking a suburban home leads Detective
-   Winston into a web of deception and intrigue as he
-   investigates the untimely death of Josephine, with
-   prime suspects Dale and Letti under the microscope.
-2. Winston laid out the photographs, collected during the
-   start of his investigation on his office table. The
-   victim, Josephine, was a bright young woman with an
-   infectious grin who had recently started dating someone
-   new. Winston sifted through a basket of witness
-   statements, one of which detailing how Dale had been
-   seen angrily yelling at Josephine after discovering her
-   new relationship.
-3. He mulled over the reports that had come in. Josephine's
-   new lover, the wrathful confrontation with Dale, the
-   police going through Dale's house and coming up with
-   suspicious multiple driver's licenses, Dale's frequent
-   presence at the victim's frequented cafe, and his
-   predilection to appear wherever Josephine was.
-4. Winston shook his head slightly, trying to dissipate the
-   fog of conclusions starting to form. Stacked in the pile
-   of evidence was a slightly crumpled invitation handed by
-   Josephine herself to Dale, inviting him to her house on
-   the day of the murder, when no one else was home.
-5. Rubbing his brow, Winston decided to pay Dale a visit.
-6. The first thing that jumped out at him when Dale opened
-   the door to his house was the cropped hair and roughened
-   hands of an electrician at work.
-7. "Dale," Winston greeted.
-8. "Detective..." The greeting was strained and curt.
-9. Winston decided to ignore it. "Heard you had a little
-   talk with Josephine recently," he started casually.
-10. Dale tensed up a bit but didn't deny it.
-    "We had a few words."
-11. Winston made a noncommittal noise. "Seems you frequent
-    the same cafe Josephine liked," he commented, carefully
-    gauging Dale's reaction.
-12. "Just like a good cup of Joe," Dale replied, his tense
-    posture relaxing slightly.
-13. Winston noticed Dale hastily shove a few driver's
-    licenses into his wallet. "I also heard you lose your
-    license often," he added.
-14. Dale shrugged sheepishly. "Never fails -- always
-    forgetting where I put those damn things."
-15. Winston noticed a particular license. "All different
-    names."
-16. "It's a private joke," Dale defended hurriedly.
-17. "Speaking of private matters, Josephine seemed to think
-    quite highly of you. She asked you to her place I
-    understand," Winston continued.
-18. "That's true," Dale confirmed.
-19. [CORRECTION] The key witness timeline previously used
-    against Letti was entered with an incorrect timestamp
-    and is now withdrawn.
-20. [CORRECTION] Follow-up records now place Dale's phone
-    near the scene during the murder window, show a recent
-    purchase of the same weapon model, and include messages
-    documenting escalating conflict with the victim.
+...
+35. "You work with chemicals daily due to the nature of your
+    work at Josephine's house," Winston began.
+36. "Well, detective, that's true. My role requires me to
+    handle these substances not only at the company but more
+    so when I am working at Josephine's house..."
+37. As Winston left the building, he pondered over what he'd
+    learned. Letti's struggle for a promotion seemed plausible...
+38. [CORRECTION] The key witness timeline previously used
+    against Letti was entered with an incorrect timestamp and
+    is now withdrawn.
+39. [CORRECTION] Follow-up records now place Dale's phone near
+    the scene during the murder window, show a recent purchase
+    of the same weapon model, and include messages documenting
+    escalating conflict with the victim.
 
 Return JSON only with this schema:
 {
@@ -367,8 +324,94 @@ Rules:
 - "top_suspect" must be one of the suspects.
 \end{verbatim}
 \end{minipage}
-\caption{Literal prompt at round 20 of \texttt{dynamic\_belief\_187\_q0}. Items 19--20 are the counterfactual correction sentences; items 1--18 are narrative paragraphs from the original story. The expected model response is \texttt{\{"top\_suspect": "Dale", "scores": \{"Dale": ..., "Letti": ...\}\}}.}
+\caption{Prompt-tail excerpt at round 39 of \texttt{dynamic\_belief\_187\_q0}. Items 38--39 are the counterfactual correction sentences appended after 37 narrative rounds.}
 \label{fig:literal_prompt}
+\end{figure}
+
+\section{Counterfactual Templates}
+\label{app:cf_templates}
+
+Counterfactual rounds are generated deterministically (no LLM call) via two fixed templates with suspect-name slots:
+
+\paragraph{If \texttt{flip\_required=True}}
+\begin{verbatim}
+Round A:
+Correction: The key witness timeline previously used against
+{before_suspect} was entered with an incorrect timestamp and
+is now withdrawn.
+
+Round B:
+Follow-up records now place {after_suspect}'s phone near the
+scene during the murder window, show a recent purchase of the
+same weapon model, and include messages documenting escalating
+conflict with the victim.
+\end{verbatim}
+
+\paragraph{If \texttt{flip\_required=False}}
+\begin{verbatim}
+Round A:
+Correction: A previously suspicious clue about {after_suspect}
+was misattributed after lab review and is now ruled irrelevant.
+
+Round B:
+Additional checks confirm {before_suspect}'s phone location near
+the scene during the murder window, a matching weapon purchase
+receipt, and recent threatening messages to the victim.
+\end{verbatim}
+
+\section{Sample Generated Story (Appendix Excerpt)}
+\label{app:sample_story}
+
+To provide qualitative context, below is a narrative excerpt from \texttt{dynamic\_belief\_187\_q0} (same case used above), followed by the appended counterfactual updates.
+
+\begin{figure}[h]
+\centering
+\begin{minipage}{0.96\linewidth}
+\small\ttfamily
+\begin{verbatim}
+Round 1 (narrative):
+An explosion rocking a suburban home leads Detective Winston
+into a web of deception and intrigue as he investigates the
+untimely death of Josephine, with prime suspects Dale and
+Letti under the microscope.
+
+Round 2 (narrative):
+Winston laid out the photographs, collected during the start
+of his investigation on his office table. The victim,
+Josephine, was a bright young woman with an infectious grin
+who had recently started dating someone new...
+
+Round 3 (narrative):
+He mulled over the reports that had come in... suspicious
+multiple driver's licenses, Dale's frequent presence at the
+victim's frequented cafe, and his predilection to appear
+wherever Josephine was.
+
+Round 4 (narrative):
+Winston shook his head slightly... a slightly crumpled
+invitation was reportedly handed by Josephine herself to Dale,
+inviting him to her house on the day of the murder.
+
+...
+
+Round 37 (narrative):
+As Winston left the building, he pondered over what he'd
+learned. Letti's struggle for a promotion seemed plausible...
+
+Round 38 (counterfactual):
+Correction: The key witness timeline previously used against
+Letti was entered with an incorrect timestamp and is now
+withdrawn.
+
+Round 39 (counterfactual):
+Follow-up records now place Dale's phone near the scene during
+the murder window, show a recent purchase of the same weapon
+model, and include messages documenting escalating conflict
+with the victim.
+\end{verbatim}
+\end{minipage}
+\caption{Story-style evidence stream excerpt from \texttt{cs422\_v3} showing narrative rounds and the appended two-round counterfactual correction block.}
+\label{fig:sample_story}
 \end{figure}
 
 \section{Conclusion}
